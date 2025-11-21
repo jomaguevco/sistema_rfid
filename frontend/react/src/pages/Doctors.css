@@ -1,0 +1,55 @@
+.doctors-page {
+  max-width: var(--container-max-width);
+  margin: 0 auto;
+  animation: fadeIn var(--animation-duration-base) ease-out;
+}
+
+.search-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.search-bar {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.search-bar .input {
+  flex: 1;
+  min-width: 200px;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-base);
+}
+
+.filter-select {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-base);
+  background-color: var(--color-white);
+  color: var(--color-gray-700);
+  cursor: pointer;
+  min-width: 200px;
+}
+
+.doctors-table-card {
+  margin-top: var(--spacing-6);
+}
+
+.table-actions {
+  display: flex;
+  gap: var(--spacing-1);
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.col-name {
+  min-width: 200px;
+  width: 30%;
+}
+

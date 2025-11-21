@@ -1,0 +1,59 @@
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: var(--color-gray-50);
+  padding: var(--spacing-4);
+}
+
+.error-boundary-content {
+  max-width: 600px;
+  background-color: var(--color-white);
+  padding: var(--spacing-8);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.error-boundary-content h1 {
+  color: var(--color-error);
+  margin-bottom: var(--spacing-4);
+}
+
+.error-boundary-content p {
+  color: var(--color-gray-700);
+  margin-bottom: var(--spacing-6);
+}
+
+.error-boundary-content details {
+  text-align: left;
+  margin-bottom: var(--spacing-6);
+  background-color: var(--color-gray-50);
+  padding: var(--spacing-4);
+  border-radius: var(--border-radius-md);
+}
+
+.error-boundary-content pre {
+  font-size: var(--font-size-sm);
+  color: var(--color-error);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.error-boundary-content button {
+  padding: var(--spacing-3) var(--spacing-6);
+  background-color: var(--color-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color var(--transition-base);
+}
+
+.error-boundary-content button:hover {
+  background-color: var(--color-primary-dark);
+}
+

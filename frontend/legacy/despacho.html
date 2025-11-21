@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Despacho de Recetas - Sistema Stock Médico</title>
+    <link rel="stylesheet" href="css/styles_medical.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .despacho-container {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        .despacho-header {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .despacho-header h1 {
+            color: #2c5282;
+            margin: 0 0 10px 0;
+        }
+        .search-section {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .search-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .search-input-group input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        .search-input-group button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .prescription-info {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .prescription-info.active {
+            display: block;
+        }
+        .prescription-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .prescription-qr {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .prescription-qr img {
+            max-width: 200px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+        }
+        .medications-list {
+            margin-top: 20px;
+        }
+        .medication-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s;
+        }
+        .medication-item.fulfilled {
+            background: #d4edda;
+            border-color: #28a745;
+        }
+        .medication-item.pending {
+            background: #f8d7da;
+            border-color: #dc3545;
+        }
+        .medication-item.partial {
+            background: #fff3cd;
+            border-color: #ffc107;
+        }
+        .medication-info {
+            flex: 1;
+        }
+        .medication-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+        .medication-details {
+            font-size: 14px;
+            color: #718096;
+        }
+        .medication-quantity {
+            text-align: right;
+            margin-right: 20px;
+        }
+        .quantity-status {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .rfid-listening {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .rfid-listening.active {
+            display: block;
+        }
+        .rfid-listening .listening-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .status-badge.pending {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-badge.partial {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-badge.fulfilled {
+            background: #d4edda;
+            color: #155724;
+        }
+        .btn-complete {
+            width: 100%;
+            padding: 15px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            display: none;
+        }
+        .btn-complete.active {
+            display: block;
+        }
+        .btn-complete:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="despacho-container">
+        <div class="despacho-header">
+            <h1>🏥 Despacho de Recetas</h1>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="userInfo" style="color: #2c5282;"></span>
+                <button onclick="logout()" class="btn btn-secondary">Cerrar Sesión</button>
+            </div>
+        </div>
+
+        <div class="search-section">
+            <h2 style="margin-top: 0;">Buscar Receta</h2>
+            <div class="search-input-group">
+                <input type="text" id="prescriptionCodeInput" placeholder="Ingrese código de receta o escanee QR" 
+                       onkeypress="if(event.key === 'Enter') searchPrescription()">
+                <button onclick="searchPrescription()">🔍 Buscar</button>
+            </div>
+            <div style="text-align: center; margin-top: 10px;">
+                <button onclick="activateRFIDListening()" class="btn btn-primary">📡 Activar Escucha RFID</button>
+            </div>
+        </div>
+
+        <div class="prescription-info" id="prescriptionInfo">
+            <div class="prescription-header">
+                <div>
+                    <h2 id="prescriptionCode">-</h2>
+                    <div style="margin-top: 10px;">
+                        <strong>Paciente:</strong> <span id="patientName">-</span><br>
+                        <strong>Médico:</strong> <span id="doctorName">-</span><br>
+                        <strong>Fecha:</strong> <span id="prescriptionDate">-</span>
+                    </div>
+                </div>
+                <div class="prescription-qr" id="prescriptionQR" style="display: none;">
+                    <img id="qrImage" src="" alt="QR Code">
+                </div>
+            </div>
+            <div class="medications-list" id="medicationsList"></div>
+            <button class="btn-complete" id="btnComplete" onclick="completePrescription()" disabled>
+                ✅ Despacho Completo
+            </button>
+        </div>
+
+        <div class="rfid-listening" id="rfidListening">
+            <div class="listening-icon">📡</div>
+            <h2>Modo de Escucha RFID Activado</h2>
+            <p>Acerca el tag RFID al lector RC522</p>
+            <button onclick="deactivateRFIDListening()" class="btn btn-secondary" style="margin-top: 20px;">
+                Cancelar
+            </button>
+        </div>
+    </div>
+
+    <script src="js/api_medical.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/despacho.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - Sistema Stock Médico</title>
+    <link rel="stylesheet" href="css/styles_medical.css">
+    <style>
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+        .login-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-header h1 {
+            color: #2c5282;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .login-header p {
+            color: #718096;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2d3748;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #2c5282;
+            box-shadow: 0 0 0 3px rgba(44, 82, 130, 0.1);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #2c5282 0%, #1e3a5f 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(44, 82, 130, 0.4);
+        }
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .error-message {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 14px;
+        }
+        .error-message.show {
+            display: block;
+        }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>🏥 Sistema Stock Médico</h1>
+                <p>Inicia sesión para continuar</p>
+            </div>
+            
+            <div id="errorMessage" class="error-message"></div>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Usuario</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        required 
+                        autocomplete="username"
+                        placeholder="Ingresa tu usuario"
+                    >
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Contraseña</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        required 
+                        autocomplete="current-password"
+                        placeholder="Ingresa tu contraseña"
+                    >
+                </div>
+                
+                <button type="submit" class="login-btn" id="loginBtn">
+                    Iniciar Sesión
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+        let isSubmitting = false;
+
+        async function handleLogin(event) {
+            // Prevenir comportamiento por defecto del formulario
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            // Prevenir múltiples envíos
+            if (isSubmitting) {
+                console.log('Login ya en proceso, ignorando...');
+                return false;
+            }
+            
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            const loginBtn = document.getElementById('loginBtn');
+            const errorMessage = document.getElementById('errorMessage');
+            const loginForm = document.getElementById('loginForm');
+            
+            // Obtener valores antes de cualquier otra operación
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            
+            // Validación básica
+            if (!username || !password) {
+                errorMessage.textContent = 'Por favor, completa todos los campos';
+                errorMessage.classList.add('show');
+                return false;
+            }
+            
+            // Marcar como enviando
+            isSubmitting = true;
+            
+            // Ocultar error previo
+            errorMessage.classList.remove('show');
+            errorMessage.textContent = '';
+            
+            // Deshabilitar botón y mostrar loading
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="loading"></span>Iniciando sesión...';
+            
+            // Prevenir que el formulario se resetee
+            if (loginForm) {
+                loginForm.setAttribute('novalidate', 'true');
+            }
+            
+            try {
+                console.log('Enviando credenciales...');
+                const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                console.log('Respuesta recibida:', response.status);
+                
+                // Verificar si la respuesta es JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Respuesta no JSON recibida:', text);
+                    errorMessage.textContent = 'Error del servidor. Por favor, intenta de nuevo.';
+                    errorMessage.classList.add('show');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Iniciar Sesión';
+                    isSubmitting = false;
+                    return false;
+                }
+                
+                const data = await response.json();
+                console.log('Datos recibidos:', data);
+                
+                if (data.success && data.data && data.data.token) {
+                    // Guardar token y datos del usuario
+                    localStorage.setItem('authToken', data.data.token);
+                    localStorage.setItem('user', JSON.stringify(data.data.user));
+                    
+                    console.log('Login exitoso, redirigiendo...');
+                    
+                    // Redirigir a la aplicación principal
+                    window.location.href = '/';
+                    return true;
+                } else {
+                    // Mostrar error - manejar errores de validación
+                    let errorText = data.error || 'Error al iniciar sesión';
+                    
+                    // Si hay detalles de validación, mostrar el primer error
+                    if (data.details && Array.isArray(data.details) && data.details.length > 0) {
+                        errorText = data.details[0].msg || errorText;
+                    }
+                    
+                    errorMessage.textContent = errorText;
+                    errorMessage.classList.add('show');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Iniciar Sesión';
+                    isSubmitting = false;
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error en login:', error);
+                errorMessage.textContent = 'Error de conexión. Verifica tu conexión a internet.';
+                errorMessage.classList.add('show');
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Iniciar Sesión';
+                isSubmitting = false;
+                return false;
+            }
+        }
+        
+        // Configurar event listener cuando el DOM esté listo
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM cargado, configurando login...');
+            
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.addEventListener('submit', handleLogin);
+                console.log('Event listener de login configurado');
+            } else {
+                console.error('Formulario de login no encontrado');
+            }
+            
+            // Verificar si ya hay una sesión activa
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                console.log('Token encontrado, verificando sesión...');
+                // Verificar si el token es válido
+                fetch(`${API_BASE_URL}/api/auth/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                .then(async res => {
+                    const contentType = res.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        return res.json();
+                    } else {
+                        const text = await res.text();
+                        throw new Error('Respuesta no JSON: ' + text.substring(0, 100));
+                    }
+                })
+                .then(data => {
+                    if (data.success) {
+                        console.log('Sesión válida, redirigiendo...');
+                        // Redirigir si ya está autenticado
+                        window.location.href = '/';
+                    } else {
+                        console.log('Sesión inválida, limpiando...');
+                        // Limpiar token inválido
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al verificar sesión:', error);
+                    // Limpiar token inválido
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('user');
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+

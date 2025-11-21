@@ -1,0 +1,117 @@
+.prediction-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-6);
+}
+
+.product-info {
+  padding: var(--spacing-4);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--color-gray-200);
+}
+
+.product-info h4 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-900);
+  margin: 0 0 var(--spacing-3) 0;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-3);
+}
+
+.info-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.info-grid label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-gray-600);
+}
+
+.predictions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.predictions-list h4 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-900);
+  margin: 0 0 var(--spacing-3) 0;
+}
+
+.prediction-item {
+  padding: var(--spacing-4);
+  background-color: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+}
+
+.prediction-period {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-3);
+  padding-bottom: var(--spacing-3);
+  border-bottom: 1px solid var(--color-gray-200);
+}
+
+.prediction-period strong {
+  font-size: var(--font-size-base);
+  color: var(--color-gray-900);
+}
+
+.prediction-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-sm);
+}
+
+.detail-row span:first-child {
+  color: var(--color-gray-600);
+}
+
+.detail-row strong {
+  color: var(--color-gray-900);
+  font-weight: var(--font-weight-semibold);
+}
+
+.detail-row.deficit {
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-error-light);
+}
+
+.detail-row.sufficient {
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--color-success-light);
+}
+
+.algorithm {
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-xs);
+  color: var(--color-gray-500);
+  text-transform: lowercase;
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-8);
+  color: var(--color-gray-500);
+}
+

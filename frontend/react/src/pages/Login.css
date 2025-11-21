@@ -1,0 +1,102 @@
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-primary);
+  background-attachment: fixed;
+  padding: var(--spacing-4);
+  position: relative;
+  overflow: hidden;
+}
+
+.login-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.login-card {
+  background: var(--color-white);
+  border-radius: var(--border-radius-xl);
+  padding: var(--spacing-10);
+  box-shadow: var(--shadow-2xl);
+  width: 100%;
+  max-width: 480px;
+  animation: slideUp var(--animation-duration-base) ease-out;
+  position: relative;
+  z-index: 1;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: var(--spacing-8);
+}
+
+.login-logo {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto var(--spacing-6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-primary);
+  border-radius: var(--border-radius-xl);
+  color: var(--color-white);
+  font-size: 40px;
+  box-shadow: var(--shadow-lg);
+  transition: all var(--transition-base);
+  animation: fadeIn var(--animation-duration-slow) ease-out;
+}
+
+.login-logo:hover {
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: var(--shadow-xl);
+}
+
+.login-header h1 {
+  color: var(--color-gray-900);
+  margin-bottom: var(--spacing-3);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: slideUp var(--animation-duration-base) ease-out 100ms both;
+}
+
+.login-subtitle {
+  color: var(--color-gray-600);
+  font-size: var(--font-size-base);
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+  animation: slideUp var(--animation-duration-base) ease-out 200ms both;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+  animation: slideUp var(--animation-duration-base) ease-out 300ms both;
+}
+
+.login-error {
+  background-color: var(--color-error-light);
+  color: #991B1B;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--border-radius-md);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-error);
+  animation: slideIn var(--animation-duration-fast) ease-out;
+}
+

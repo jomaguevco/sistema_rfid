@@ -1,0 +1,285 @@
+.dashboard {
+  max-width: var(--container-max-width);
+  margin: 0 auto;
+  animation: fadeIn var(--animation-duration-base) ease-out;
+}
+
+.dashboard-header {
+  margin-bottom: var(--spacing-8);
+  animation: slideUp var(--animation-duration-base) ease-out;
+}
+
+.dashboard-header h1 {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gray-900);
+  margin-bottom: var(--spacing-2);
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dashboard-subtitle {
+  font-size: var(--font-size-base);
+  color: var(--color-gray-500);
+  margin: 0;
+}
+
+.dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--spacing-5);
+  margin-bottom: var(--spacing-8);
+}
+
+.metric-card {
+  padding: 0 !important;
+  transition: all var(--transition-base);
+  animation: slideUp var(--animation-duration-base) ease-out both;
+}
+
+.metric-card:nth-child(1) { animation-delay: 100ms; }
+.metric-card:nth-child(2) { animation-delay: 200ms; }
+.metric-card:nth-child(3) { animation-delay: 300ms; }
+.metric-card:nth-child(4) { animation-delay: 400ms; }
+.metric-card:nth-child(5) { animation-delay: 500ms; }
+.metric-card:nth-child(6) { animation-delay: 600ms; }
+.metric-card:nth-child(7) { animation-delay: 700ms; }
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-xl) !important;
+}
+
+.metric-content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-5);
+  transition: all var(--transition-base);
+}
+
+.metric-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--border-radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  flex-shrink: 0;
+  transition: all var(--transition-base);
+}
+
+.metric-card:hover .metric-icon {
+  transform: scale(1.1);
+}
+
+.metric-icon-primary {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.metric-icon-success {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.metric-icon-warning {
+  background-color: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.metric-icon-error {
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+}
+
+.metric-icon-info {
+  background-color: var(--color-info-light);
+  color: var(--color-info);
+}
+
+.metric-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.metric-value {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gray-900);
+  line-height: 1.2;
+  margin-bottom: var(--spacing-1);
+}
+
+.metric-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-500);
+}
+
+.dashboard-section {
+  margin-bottom: var(--spacing-8);
+}
+
+.prescriptions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.prescription-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-3);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+  transition: background-color var(--transition-base);
+}
+
+.prescription-item:hover {
+  background-color: var(--color-gray-100);
+}
+
+.prescription-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.prescription-code {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-900);
+}
+
+.prescription-patient {
+  font-size: var(--font-size-xs);
+  color: var(--color-gray-500);
+}
+
+.prescription-status {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--border-radius-full);
+}
+
+.prescription-status-pending {
+  background-color: var(--color-error-light);
+  color: #991B1B;
+}
+
+.prescription-status-partial {
+  background-color: var(--color-warning-light);
+  color: #92400E;
+}
+
+.prescription-status-fulfilled {
+  background-color: var(--color-success-light);
+  color: #047857;
+}
+
+.empty-message {
+  text-align: center;
+  color: var(--color-gray-500);
+  padding: var(--spacing-8);
+  margin: 0;
+}
+
+.quick-actions-card {
+  animation: slideUp var(--animation-duration-base) ease-out;
+  margin-bottom: var(--spacing-8);
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-4);
+}
+
+.quick-action-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: var(--spacing-3) !important;
+  padding: var(--spacing-6) !important;
+  min-height: auto !important;
+  height: auto !important;
+  border-radius: var(--border-radius-lg) !important;
+  transition: all var(--transition-base) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.quick-action-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: var(--gradient-overlay);
+  transition: left var(--transition-base);
+}
+
+.quick-action-btn:hover::before {
+  left: 0;
+}
+
+.quick-action-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.quick-action-btn svg {
+  width: 40px;
+  height: 40px;
+  transition: all var(--transition-base);
+  position: relative;
+  z-index: 1;
+}
+
+.quick-action-btn:hover svg {
+  transform: scale(1.15) rotate(5deg);
+}
+
+.quick-action-btn span {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard-section {
+  animation: fadeIn var(--animation-duration-base) ease-out;
+}
+
+.dashboard-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: var(--spacing-6);
+  margin-bottom: var(--spacing-8);
+}
+
+.dashboard-charts-grid > * {
+  animation: slideUp var(--animation-duration-base) ease-out;
+}
+
+.prescription-item {
+  transition: all var(--transition-base);
+  animation: slideInRight var(--animation-duration-fast) ease-out;
+}
+
+.prescription-item:hover {
+  transform: translateX(4px);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 1200px) {
+  .dashboard-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}

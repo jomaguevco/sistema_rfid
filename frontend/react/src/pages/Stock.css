@@ -1,0 +1,130 @@
+.stock-page {
+  padding: 1.5rem;
+}
+
+.stock-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.stock-page .page-header h1 {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 1.75rem;
+}
+
+.stock-page .page-subtitle {
+  margin: 0.25rem 0 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+.stock-page .search-section {
+  padding: 1rem;
+}
+
+.stock-page .search-bar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.stock-page .filter-select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  font-size: 0.9rem;
+  background: var(--color-background);
+  color: var(--color-text);
+  min-width: 150px;
+}
+
+.stock-page .filter-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.stock-page .rfid-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: var(--color-background-secondary);
+  border-radius: 0.375rem;
+  font-size: 0.9rem;
+}
+
+.stock-page .rfid-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.stock-page .rfid-indicator.pulse {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.stock-page .last-rfid {
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.stock-page .stock-table-card {
+  margin-top: 1.5rem;
+}
+
+.stock-page .rfid-code-container {
+  display: inline-flex;
+  align-items: center;
+}
+
+.stock-page .rfid-code {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: var(--color-primary);
+  padding: 0.25rem 0.5rem;
+  background: var(--color-primary-light);
+  border-radius: 0.25rem;
+}
+
+.stock-page .rfid-code-container.empty .rfid-code {
+  color: var(--color-text-secondary);
+  background: var(--color-background-secondary);
+}
+
+.stock-page .table-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .stock-page {
+    padding: 1rem;
+  }
+
+  .stock-page .search-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stock-page .filter-select {
+    width: 100%;
+  }
+}
+

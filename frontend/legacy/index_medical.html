@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión de Stock Médico RFID</title>
+    <link rel="stylesheet" href="css/styles_medical.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Navegación -->
+        <nav class="main-nav">
+            <div class="nav-brand">
+                <h1>🏥 Sistema Stock Médico</h1>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#" onclick="showSection('dashboard'); return false;" class="nav-link active" data-section="dashboard">Dashboard</a></li>
+                <li><a href="#" onclick="showSection('products'); return false;" class="nav-link" data-section="products">Productos</a></li>
+                <li><a href="#" onclick="showSection('batches'); return false;" class="nav-link" data-section="batches">Lotes</a></li>
+                <li><a href="#" onclick="showSection('prescriptions'); return false;" class="nav-link" data-section="prescriptions">Recetas</a></li>
+                <li><a href="#" onclick="showSection('stock-entry'); return false;" class="nav-link" data-section="stock-entry">Entrada Stock</a></li>
+                <li><a href="#" onclick="showSection('stock-exit'); return false;" class="nav-link" data-section="stock-exit">Salida Stock</a></li>
+                <li><a href="#" onclick="showSection('categories'); return false;" class="nav-link" data-section="categories">Categorías</a></li>
+                <li><a href="#" onclick="showSection('areas'); return false;" class="nav-link" data-section="areas">Áreas</a></li>
+                <li><a href="#" onclick="showSection('alerts'); return false;" class="nav-link" data-section="alerts">Alertas <span id="alertsBadge" class="badge badge-danger" style="display:none;">0</span></a></li>
+                <li><a href="#" onclick="showSection('predictions'); return false;" class="nav-link" data-section="predictions">Predicciones</a></li>
+                <li><a href="#" onclick="showSection('reports'); return false;" class="nav-link" data-section="reports">Reportes</a></li>
+                <li><a href="#" onclick="showSection('suppliers'); return false;" class="nav-link" data-section="suppliers">Proveedores</a></li>
+                <li><a href="#" onclick="showSection('orders'); return false;" class="nav-link" data-section="orders">Órdenes de Compra</a></li>
+                <li id="auditNavItem" style="display:none;"><a href="#" onclick="showSection('audit'); return false;" class="nav-link" data-section="audit">Auditoría</a></li>
+                <li id="backupNavItem" style="display:none;"><a href="#" onclick="showSection('backup'); return false;" class="nav-link" data-section="backup">Backup</a></li>
+                <li id="usersNavItem" style="display:none;"><a href="#" onclick="showSection('users'); return false;" class="nav-link" data-section="users">Usuarios</a></li>
+                <li id="adminNavItem" style="display:none;"><a href="#" onclick="showSection('admin'); return false;" class="nav-link" data-section="admin">⚙️ Administración</a></li>
+                <li><a href="#" onclick="showSection('notifications'); return false;" class="nav-link" data-section="notifications">📧 Notificaciones</a></li>
+            </ul>
+            <div class="nav-user" style="margin-left: auto; display: flex; align-items: center; gap: 15px;">
+                <span id="userInfo" style="color: white; font-size: 14px;"></span>
+                <button onclick="logout()" class="btn btn-sm btn-secondary" style="padding: 8px 16px;">Cerrar Sesión</button>
+            </div>
+        </nav>
+
+        <!-- Contenido Principal -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <section id="dashboard-section" class="content-section active">
+                <div class="section-header">
+                    <h2>Dashboard Médico</h2>
+                    <div>
+                        <select id="dashboardDateRange" class="filter-select" onchange="refreshDashboard()" style="margin-right: 10px;">
+                            <option value="today">Hoy</option>
+                            <option value="week">Esta Semana</option>
+                            <option value="month" selected>Este Mes</option>
+                            <option value="quarter">Este Trimestre</option>
+                            <option value="year">Este Año</option>
+                            <option value="custom">Personalizado</option>
+                        </select>
+                        <input type="date" id="dashboardStartDate" class="filter-select" style="display:none; margin-right: 10px;" onchange="refreshDashboard()">
+                        <input type="date" id="dashboardEndDate" class="filter-select" style="display:none; margin-right: 10px;" onchange="refreshDashboard()">
+                        <button onclick="refreshDashboard()" class="btn btn-secondary btn-sm">🔄 Actualizar</button>
+                        <button onclick="comparePeriods()" class="btn btn-info btn-sm">📊 Comparar Períodos</button>
+                    </div>
+                </div>
+
+                <!-- Métricas Principales -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: #667eea;">📦</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-total-products">0</div>
+                            <div class="metric-label">Total Productos</div>
+                        </div>
+                    </div>
+                    <div class="metric-card critical">
+                        <div class="metric-icon" style="background: #dc3545;">⚠️</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-expired">0</div>
+                            <div class="metric-label">Vencidos</div>
+                        </div>
+                    </div>
+                    <div class="metric-card warning">
+                        <div class="metric-icon" style="background: #ffc107;">⏰</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-expiring">0</div>
+                            <div class="metric-label">Por Vencer</div>
+                        </div>
+                    </div>
+                    <div class="metric-card warning">
+                        <div class="metric-icon" style="background: #fd7e14;">📉</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-low-stock">0</div>
+                            <div class="metric-label">Stock Bajo</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: #28a745;">✅</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-total-stock">0</div>
+                            <div class="metric-label">Stock Total</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: #17a2b8;">🔔</div>
+                        <div class="metric-info">
+                            <div class="metric-value" id="metric-alerts">0</div>
+                            <div class="metric-label">Alertas Activas</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gráficos -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Productos por Categoría</h3>
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Vencimientos Próximos (90 días)</h3>
+                        <canvas id="expiryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Lista de Alertas Prioritarias -->
+                <div class="alerts-preview">
+                    <h3>Alertas Prioritarias</h3>
+                    <div id="priorityAlertsList" class="alerts-list"></div>
+                </div>
+
+                <!-- Productos por Vencer -->
+                <div class="expiring-products">
+                    <h3>Productos por Vencer (Próximos 30 días)</h3>
+                    <div id="expiringProductsList" class="products-list"></div>
+                </div>
+            </section>
+
+            <!-- Products Section -->
+            <section id="products-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Productos Médicos</h2>
+                    <div>
+                        <button id="newProductBtn" class="btn btn-primary">➕ Nuevo Producto</button>
+                        <button onclick="showImportModal('products')" class="btn btn-info">📥 Importar Productos</button>
+                        <button onclick="loadProducts()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+
+                <!-- Filtros y Búsqueda -->
+                <div class="filters-bar">
+                    <input type="text" id="searchInput" placeholder="Buscar por nombre, RFID, código de barras, código interno..." class="search-input" onkeyup="filterProducts()" onkeypress="if(event.key === 'Enter') unifiedSearch()">
+                    <button onclick="unifiedSearch()" class="btn btn-primary btn-sm">🔍 Buscar</button>
+                    <select id="filterType" class="filter-select" onchange="filterProducts()">
+                        <option value="">Todos los tipos</option>
+                        <option value="medicamento">Medicamento</option>
+                        <option value="insumo">Insumo Médico</option>
+                    </select>
+                    <select id="filterCategory" class="filter-select" onchange="filterProducts()">
+                        <option value="">Todas las categorías</option>
+                    </select>
+                    <select id="filterExpiry" class="filter-select" onchange="filterProducts()">
+                        <option value="">Todos los estados</option>
+                        <option value="expired">Vencidos</option>
+                        <option value="expiring_soon">Por vencer</option>
+                        <option value="valid">Vigentes</option>
+                    </select>
+                    <select id="filterStock" class="filter-select" onchange="filterProducts()">
+                        <option value="">Todo el stock</option>
+                        <option value="low">Stock bajo</option>
+                    </select>
+                </div>
+
+                <!-- Tabla de Productos -->
+                <div class="table-container">
+                    <table class="products-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Tipo</th>
+                                <th>Principio Activo</th>
+                                <th>Concentración</th>
+                                <th>Categoría</th>
+                                <th>Stock</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsTableBody">
+                            <tr><td colspan="9" class="text-center">Cargando productos...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Batches Section -->
+            <section id="batches-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Lotes</h2>
+                    <div>
+                        <button onclick="showBatchForm()" class="btn btn-primary">➕ Nuevo Lote</button>
+                        <button onclick="showImportModal('batches')" class="btn btn-info">📥 Importar Lotes</button>
+                        <button onclick="showExpiryCalendar()" class="btn btn-info">📅 Calendario de Vencimientos</button>
+                        <button onclick="showBulkRfidAssignment()" class="btn btn-secondary">📡 Asignación Masiva RFID</button>
+                        <button onclick="showPrintModal()" class="btn btn-success">🖨️ Imprimir Etiquetas</button>
+                        <button onclick="exportBatches()" class="btn btn-secondary">📥 Exportar Lotes</button>
+                    </div>
+                </div>
+                <div id="batchesContent"></div>
+            </section>
+
+            <!-- Prescriptions Section -->
+            <section id="prescriptions-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Recetas</h2>
+                    <div>
+                        <button onclick="createPrescription()" class="btn btn-primary">➕ Nueva Receta</button>
+                        <button onclick="loadPrescriptions()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="products-table">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Paciente</th>
+                                <th>Médico</th>
+                                <th>Fecha</th>
+                                <th>Estado</th>
+                                <th>Items</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="prescriptionsTableBody">
+                            <tr><td colspan="7" class="text-center">Cargando recetas...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Stock Entry Section -->
+            <section id="stock-entry-section" class="content-section">
+                <div class="section-header">
+                    <h2>Entrada de Stock</h2>
+                    <div>
+                        <button onclick="activateEntryMode()" class="btn btn-primary">📡 Activar Escucha RFID</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <p>Activa el modo de escucha RFID y acerca el tag del producto al lector para registrar la entrada de stock.</p>
+                        <p><strong>Nota:</strong> Si el producto es una caja con múltiples unidades, se te pedirá especificar la cantidad a ingresar.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stock Exit Section -->
+            <section id="stock-exit-section" class="content-section">
+                <div class="section-header">
+                    <h2>Salida de Stock</h2>
+                    <div>
+                        <button onclick="activateExitMode()" class="btn btn-danger">📡 Activar Escucha RFID</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <p>Activa el modo de escucha RFID y acerca el tag del producto al lector para registrar la salida de stock.</p>
+                        <p><strong>Nota:</strong> Si el producto es una caja con múltiples unidades, se te pedirá especificar la cantidad a retirar.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Categories Section -->
+            <section id="categories-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Categorías Médicas</h2>
+                    <div>
+                        <button onclick="showCategoryForm()" class="btn btn-primary">➕ Nueva Categoría</button>
+                        <button onclick="loadCategoriesView()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div id="categoriesContent">
+                    <p class="text-muted">Cargando categorías...</p>
+                </div>
+            </section>
+
+            <!-- Areas Section -->
+            <section id="areas-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Áreas/Departamentos</h2>
+                    <div>
+                        <button onclick="showAreaForm()" class="btn btn-primary">➕ Nueva Área</button>
+                        <button onclick="loadAreasView()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="products-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Descripción</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="areasTableBody">
+                            <tr><td colspan="5" class="text-center">Cargando áreas...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Alerts Section -->
+            <section id="alerts-section" class="content-section">
+                <div class="section-header">
+                    <h2>Alertas del Sistema</h2>
+                    <button onclick="checkAlerts()" class="btn btn-secondary">🔍 Verificar Alertas</button>
+                </div>
+                <div id="alertsContent"></div>
+            </section>
+
+            <!-- Predictions Section -->
+            <section id="predictions-section" class="content-section">
+                <div class="section-header">
+                    <h2>Predicciones de Consumo</h2>
+                    <div>
+                        <select id="predictionViewMode" class="filter-select" onchange="loadPredictions()" style="margin-right: 10px;">
+                            <option value="table">Vista Tabla</option>
+                            <option value="chart">Vista Gráfica</option>
+                            <option value="comparison">Comparación</option>
+                            <option value="trends">Tendencias</option>
+                        </select>
+                        <select id="predictionPeriod" class="filter-select" onchange="loadPredictions()" style="margin-right: 10px;">
+                            <option value="month">Próximo Mes</option>
+                            <option value="quarter">Próximo Trimestre</option>
+                            <option value="year">Próximo Año</option>
+                        </select>
+                        <select id="predictionArea" class="filter-select" onchange="loadPredictions()" style="margin-right: 10px;">
+                            <option value="">Todas las áreas</option>
+                        </select>
+                        <button onclick="generateAllPredictions()" class="btn btn-primary">📊 Generar Todas las Predicciones</button>
+                    </div>
+                </div>
+                <div id="predictionsContent"></div>
+            </section>
+
+            <!-- Traceability Section -->
+            <section id="traceability-section" class="content-section">
+                <div class="section-header">
+                    <h2>Trazabilidad Completa</h2>
+                    <div>
+                        <select id="traceabilityType" class="filter-select" onchange="loadTraceabilityView()" style="margin-right: 10px;">
+                            <option value="all">Todo el Historial</option>
+                            <option value="product">Por Producto</option>
+                            <option value="batch">Por Lote</option>
+                            <option value="area">Por Área</option>
+                        </select>
+                        <button onclick="exportTraceability()" class="btn btn-secondary btn-sm">📥 Exportar CSV</button>
+                    </div>
+                </div>
+                <div id="traceabilityContent">
+                    <div class="filters-bar" style="margin-bottom: 20px;">
+                        <select id="traceabilityProduct" class="filter-select" style="display:none;">
+                            <option value="">Seleccionar producto</option>
+                        </select>
+                        <select id="traceabilityBatch" class="filter-select" style="display:none;">
+                            <option value="">Seleccionar lote</option>
+                        </select>
+                        <select id="traceabilityArea" class="filter-select" style="display:none;">
+                            <option value="">Seleccionar área</option>
+                        </select>
+                        <input type="date" id="traceabilityStartDate" class="filter-select" placeholder="Fecha inicio">
+                        <input type="date" id="traceabilityEndDate" class="filter-select" placeholder="Fecha fin">
+                        <button onclick="loadTraceabilityView()" class="btn btn-primary btn-sm">🔍 Buscar</button>
+                        <button onclick="clearTraceabilityFilters()" class="btn btn-secondary btn-sm">🔄 Limpiar</button>
+                    </div>
+                    <div id="traceabilityResults"></div>
+                </div>
+            </section>
+
+            <!-- Reports Section -->
+            <section id="reports-section" class="content-section">
+                <div class="section-header">
+                    <h2>Reportes Médicos</h2>
+                </div>
+                <div id="reportsContent"></div>
+            </section>
+
+            <!-- Suppliers Section -->
+            <section id="suppliers-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Proveedores</h2>
+                    <div>
+                        <button onclick="showSupplierForm()" class="btn btn-primary">➕ Nuevo Proveedor</button>
+                        <button onclick="loadSuppliersView()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div id="suppliersContent">
+                    <p class="text-muted">Cargando proveedores...</p>
+                </div>
+            </section>
+
+            <!-- Orders Section -->
+            <section id="orders-section" class="content-section">
+                <div class="section-header">
+                    <h2>Órdenes de Compra</h2>
+                    <div>
+                        <button onclick="showOrderForm()" class="btn btn-primary">➕ Nueva Orden</button>
+                        <button onclick="loadOrdersView()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div id="ordersContent">
+                    <p class="text-muted">Cargando órdenes...</p>
+                </div>
+            </section>
+
+            <!-- Audit Section -->
+            <section id="audit-section" class="content-section">
+                <div class="section-header">
+                    <h2>Auditoría y Logs</h2>
+                </div>
+                <div id="auditContent"></div>
+            </section>
+
+            <!-- Backup Section -->
+            <section id="backup-section" class="content-section">
+                <div class="section-header">
+                    <h2>Backup y Restauración</h2>
+                </div>
+                <div id="backupContent"></div>
+            </section>
+
+            <!-- Users Section -->
+            <section id="users-section" class="content-section">
+                <div class="section-header">
+                    <h2>Gestión de Usuarios</h2>
+                    <div>
+                        <button onclick="showUserForm()" class="btn btn-primary">➕ Nuevo Usuario</button>
+                        <button onclick="loadUsersView()" class="btn btn-secondary">🔄 Actualizar</button>
+                    </div>
+                </div>
+                <div id="usersContent">
+                    <p class="text-muted">Cargando usuarios...</p>
+                </div>
+            </section>
+            
+            <!-- Admin Section -->
+            <section id="admin-section" class="content-section" style="display: none;">
+                <!-- Contenido cargado dinámicamente por admin.js -->
+            </section>
+            
+            <!-- Notifications Section -->
+            <section id="notifications-section" class="content-section" style="display: none;">
+                <!-- Contenido cargado dinámicamente por notifications.js -->
+            </section>
+        </main>
+    </div>
+
+    <!-- Modales -->
+    <!-- Modal Producto -->
+    <div id="productModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('productModal')">&times;</span>
+            <h2 id="modalProductTitle">Nuevo Producto Médico</h2>
+            <form id="productForm" onsubmit="saveProduct(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre del Producto *</label>
+                        <input type="text" id="productName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Tipo *</label>
+                        <select id="productType" required>
+                            <option value="medicamento">Medicamento</option>
+                            <option value="insumo">Insumo Médico</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Principio Activo</label>
+                        <input type="text" id="activeIngredient">
+                    </div>
+                    <div class="form-group">
+                        <label>Concentración</label>
+                        <input type="text" id="concentration" placeholder="ej: 500mg">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Presentación</label>
+                        <input type="text" id="presentation" placeholder="ej: Tabletas, Ampollas">
+                    </div>
+                    <div class="form-group">
+                        <label>Vía de Administración</label>
+                        <input type="text" id="administrationRoute" placeholder="ej: Oral, Tópico">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Categoría Médica</label>
+                        <select id="productCategory"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Stock Mínimo</label>
+                        <input type="number" id="minStock" min="0" value="5">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Descripción</label>
+                    <textarea id="productDescription" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="requiresRefrigeration"> Requiere Refrigeración
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('productModal')">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Lote -->
+    <div id="batchModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('batchModal')">&times;</span>
+            <h2>Nuevo Lote</h2>
+            <form id="batchForm" onsubmit="saveBatch(event)">
+                <div class="form-group">
+                    <label>Producto *</label>
+                    <select id="batchProductId" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Número de Lote *</label>
+                        <input type="text" id="lotNumber" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Fecha de Vencimiento *</label>
+                        <input type="date" id="expiryDate" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Cantidad *</label>
+                        <input type="number" id="batchQuantity" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Fecha de Ingreso</label>
+                        <input type="date" id="entryDate">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Tag RFID (Opcional)</label>
+                    <input type="text" id="batchRfidUid" placeholder="Dejar vacío para asignar después">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('batchModal')">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Selección de Área (para retiros RFID) -->
+    <div id="areaSelectionModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('areaSelectionModal')">&times;</span>
+            <h2>Seleccionar Área/Departamento</h2>
+            <p>Se detectó un retiro de producto. Selecciona el área de donde se retira:</p>
+            <select id="areaSelect" class="form-select"></select>
+            <div class="form-actions" style="margin-top: 20px;">
+                <button onclick="confirmRemoval()" class="btn btn-success">Confirmar Retiro</button>
+                <button onclick="cancelRemoval()" class="btn btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Escucha RFID - Entrada -->
+    <div id="entryListeningModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="deactivateEntryMode()">&times;</span>
+            <h2>📡 Modo Entrada RFID Activado</h2>
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 64px; margin-bottom: 20px; animation: pulse 2s infinite;">📡</div>
+                <p>Acerca el tag RFID al lector RC522 para registrar entrada de stock</p>
+                <button onclick="deactivateEntryMode()" class="btn btn-secondary" style="margin-top: 20px;">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Escucha RFID - Salida -->
+    <div id="exitListeningModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="deactivateExitMode()">&times;</span>
+            <h2>📡 Modo Salida RFID Activado</h2>
+            <div style="text-align: center; padding: 40px;">
+                <div style="font-size: 64px; margin-bottom: 20px; animation: pulse 2s infinite;">📡</div>
+                <p>Acerca el tag RFID al lector RC522 para registrar salida de stock</p>
+                <button onclick="deactivateExitMode()" class="btn btn-secondary" style="margin-top: 20px;">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cantidad - Entrada -->
+    <div id="quantityEntryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeQuantityModal()">&times;</span>
+            <h2>Especificar Cantidad a Ingresar</h2>
+            <p><strong>Producto:</strong> <span id="quantityEntryProductName"></span></p>
+            <p>Este producto es una caja con <span id="quantityEntryUnitsPerPackage"></span> unidades por paquete.</p>
+            <div class="form-group">
+                <label>Cantidad de unidades a ingresar:</label>
+                <input type="number" id="quantityEntryInput" min="1" value="1" class="form-control">
+            </div>
+            <input type="hidden" id="quantityEntryRfid">
+            <input type="hidden" id="quantityEntryType" value="entry">
+            <div class="form-actions">
+                <button onclick="confirmQuantityEntry()" class="btn btn-success">Confirmar</button>
+                <button onclick="closeQuantityModal()" class="btn btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cantidad - Salida -->
+    <div id="quantityExitModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeQuantityExitModal()">&times;</span>
+            <h2>Especificar Cantidad a Retirar</h2>
+            <p><strong>Producto:</strong> <span id="quantityExitProductName"></span></p>
+            <p>Este producto es una caja con <span id="quantityExitUnitsPerPackage"></span> unidades por paquete.</p>
+            <p><strong>Stock disponible:</strong> <span id="quantityExitAvailable"></span> unidades</p>
+            <div class="form-group">
+                <label>Cantidad de unidades a retirar:</label>
+                <input type="number" id="quantityExitInput" min="1" value="1" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>Área/Departamento (opcional):</label>
+                <select id="quantityExitArea" class="form-select"></select>
+            </div>
+            <input type="hidden" id="quantityExitRfid">
+            <div class="form-actions">
+                <button onclick="confirmQuantityExit()" class="btn btn-success">Confirmar</button>
+                <button onclick="closeQuantityExitModal()" class="btn btn-secondary">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Receta -->
+    <div id="prescriptionModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close" onclick="closePrescriptionModal()">&times;</span>
+            <h2 id="modalPrescriptionTitle">Nueva Receta</h2>
+            <form id="prescriptionForm" onsubmit="savePrescription(event); return false;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre del Paciente *</label>
+                        <input type="text" id="prescriptionPatientName" name="patient_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>DNI/ID del Paciente</label>
+                        <input type="text" id="prescriptionPatientId" name="patient_id">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre del Médico *</label>
+                        <input type="text" id="prescriptionDoctorName" name="doctor_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Número de Colegiatura</label>
+                        <input type="text" id="prescriptionDoctorLicense" name="doctor_license">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Fecha de Receta *</label>
+                        <input type="date" id="prescriptionDate" name="prescription_date" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Notas</label>
+                    <textarea id="prescriptionNotes" name="notes" rows="3"></textarea>
+                </div>
+                
+                <h3>Medicamentos</h3>
+                <div class="form-row">
+                    <div class="form-group" style="flex: 2;">
+                        <label>Producto</label>
+                        <select id="prescriptionProductSelect" class="form-select">
+                            <option value="">Seleccione un producto</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Cantidad</label>
+                        <input type="number" id="prescriptionQuantityInput" min="1" value="1">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Instrucciones</label>
+                        <input type="text" id="prescriptionInstructionsInput" placeholder="Ej: 1 cada 8h">
+                    </div>
+                    <div class="form-group" style="flex: 0.5; display: flex; align-items: flex-end;">
+                        <button type="button" onclick="addPrescriptionItem()" class="btn btn-primary">Agregar</button>
+                    </div>
+                </div>
+                
+                <div id="prescriptionItemsList" style="margin: 20px 0; padding: 15px; background: #f7fafc; border-radius: 8px; min-height: 50px;">
+                    <p class="text-muted">No hay medicamentos agregados</p>
+                </div>
+                
+                <div id="prescriptionQRDisplay" style="text-align: center; margin: 20px 0; display: none;">
+                    <h4>QR de la Receta</h4>
+                    <img id="prescriptionQRImage" src="" alt="QR Code" style="max-width: 200px; border: 2px solid #e2e8f0; border-radius: 8px;">
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Guardar Receta</button>
+                    <button type="button" class="btn btn-secondary" onclick="closePrescriptionModal()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Categoría -->
+    <div id="categoryModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('categoryModal')">&times;</span>
+            <h2 id="modalCategoryTitle">Nueva Categoría</h2>
+            <form id="categoryForm" onsubmit="saveCategory(event)">
+                <div class="form-group">
+                    <label>Nombre de la Categoría *</label>
+                    <input type="text" id="categoryName" required>
+                </div>
+                <div class="form-group">
+                    <label>Descripción</label>
+                    <textarea id="categoryDescription" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('categoryModal')">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Área/Departamento -->
+    <div id="areaModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('areaModal')">&times;</span>
+            <h2 id="modalAreaTitle">Nueva Área/Departamento</h2>
+            <form id="areaForm" onsubmit="saveArea(event)">
+                <div class="form-group">
+                    <label>Nombre del Área *</label>
+                    <input type="text" id="areaName" required>
+                </div>
+                <div class="form-group">
+                    <label>Descripción</label>
+                    <textarea id="areaDescription" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="areaIsActive" checked> Área Activa
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('areaModal')">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Cargando...</p>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/auth.js"></script>
+    <script src="js/api_medical.js"></script>
+    <script src="js/app_medical.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/predictions.js"></script>
+    <script src="js/alerts.js"></script>
+    <script src="js/batches.js"></script>
+    <script src="js/categories.js"></script>
+    <script src="js/areas.js"></script>
+    <script src="js/search.js"></script>
+    <script src="js/traceability.js"></script>
+    <script src="js/reports.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/backup.js"></script>
+    <script src="js/users.js"></script>
+    <script src="js/printing.js"></script>
+    <script src="js/audit.js"></script>
+    <script src="js/suppliers.js"></script>
+    <script src="js/orders.js"></script>
+    <script src="js/receipts.js"></script>
+    <script src="js/admin.js"></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/prescriptions.js"></script>
+    <script src="js/stock_entry.js"></script>
+    <script src="js/stock_exit.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,26 @@
+.generate-predictions-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.generate-predictions-content p {
+  color: var(--color-gray-700);
+  line-height: var(--line-height-relaxed);
+}
+
+.progress-info {
+  padding: var(--spacing-4);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+}
+
+.error-message {
+  padding: var(--spacing-3);
+  background-color: var(--color-error-light);
+  color: #991B1B;
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--color-error);
+  font-size: var(--font-size-sm);
+}
+

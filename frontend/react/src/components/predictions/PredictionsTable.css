@@ -1,0 +1,44 @@
+.predictions-table-card {
+  padding: var(--spacing-5);
+}
+
+.table-header {
+  margin-bottom: var(--spacing-5);
+  padding-bottom: var(--spacing-4);
+  border-bottom: 1px solid var(--color-gray-200);
+}
+
+.table-header h3 {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-900);
+  margin: 0 0 var(--spacing-2) 0;
+}
+
+.table-subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-500);
+  margin: 0;
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-12);
+}
+
+.empty-state p {
+  color: var(--color-gray-500);
+  margin-bottom: var(--spacing-2);
+}
+
+.empty-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-gray-400);
+}
+
+.table-actions {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+

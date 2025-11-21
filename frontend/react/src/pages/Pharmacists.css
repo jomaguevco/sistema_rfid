@@ -1,0 +1,78 @@
+.pharmacists-page {
+  padding: var(--spacing-4);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--spacing-4);
+  gap: var(--spacing-4);
+}
+
+.page-header h1 {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--spacing-1) 0;
+}
+
+.page-subtitle {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.search-section {
+  margin-bottom: var(--spacing-4);
+}
+
+.search-bar {
+  display: flex;
+  gap: var(--spacing-2);
+  flex-wrap: nowrap;
+}
+
+.search-bar .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pharmacists-table-card {
+  margin-top: var(--spacing-4);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.status-badge.active {
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
+}
+
+.status-badge.inactive {
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
+}
+
+.table-actions {
+  display: flex;
+  gap: var(--spacing-1);
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+  }
+
+  .search-bar {
+    flex-direction: column;
+  }
+}
+

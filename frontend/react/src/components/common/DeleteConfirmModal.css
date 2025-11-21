@@ -1,0 +1,41 @@
+.delete-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4);
+  text-align: center;
+}
+
+.delete-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--border-radius-full);
+  background-color: var(--color-error-light);
+  color: var(--color-error);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+}
+
+.delete-message {
+  font-size: var(--font-size-base);
+  color: var(--color-gray-700);
+  margin: 0;
+  line-height: var(--line-height-relaxed);
+}
+
+.delete-item-name {
+  padding: var(--spacing-3);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+  width: 100%;
+}
+
+.delete-item-name strong {
+  font-size: var(--font-size-base);
+  color: var(--color-gray-900);
+  word-break: break-word;
+}
+

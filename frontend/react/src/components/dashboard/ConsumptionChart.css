@@ -1,0 +1,15 @@
+.chart-card {
+  padding: var(--spacing-5);
+  animation: fadeIn var(--animation-duration-base) ease-out;
+}
+
+.chart-card .empty-message {
+  text-align: center;
+  color: var(--color-gray-500);
+  padding: var(--spacing-8);
+}
+
+.chart-card .recharts-wrapper {
+  animation: slideUp var(--animation-duration-base) ease-out;
+}
+
