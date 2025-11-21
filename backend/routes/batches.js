@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database_medical');
 const { authenticateToken } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 
 /**
  * GET /api/batches
@@ -153,6 +154,12 @@ router.post('/', authenticateToken, async (req, res) => {
         error: 'Ya existe un lote con ese número para este producto'
       });
     }
+    if (error.code === 'RFID_DUPLICATE') {
+      return res.status(400).json({
+        success: false,
+        error: error.message || 'Este código RFID ya está registrado en otro lote'
+      });
+    }
     res.status(500).json({
       success: false,
       error: error.message
@@ -227,6 +234,42 @@ router.put('/:id/rfid', async (req, res) => {
       message: 'RFID asignado correctamente al lote'
     });
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/batches/:id
+ * Eliminar un lote (solo para administradores)
+ */
+router.delete('/:id', authenticateToken, async (req, res) => {
+  try {
+    // Verificar que el usuario sea administrador
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Solo los administradores pueden eliminar lotes'
+      });
+    }
+
+    const batchId = parseInt(req.params.id);
+    const result = await db.deleteBatch(batchId);
+
+    res.json({
+      success: true,
+      data: result,
+      message: 'Lote eliminado correctamente'
+    });
+  } catch (error) {
+    if (error.code === 'BATCH_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: error.message
+      });
+    }
     res.status(500).json({
       success: false,
       error: error.message

@@ -159,7 +159,7 @@ router.post('/', sensitiveOperationLimiter, validateProduct, async (req, res) =>
     const {
       name, description, product_type, active_ingredient, concentration,
       presentation, administration_route, category_id, min_stock,
-      requires_refrigeration, rfid_uid
+      requires_refrigeration, rfid_uid, units_per_package
     } = req.body;
     
     if (!name || name.trim() === '') {
@@ -180,7 +180,8 @@ router.post('/', sensitiveOperationLimiter, validateProduct, async (req, res) =>
       category_id: category_id || null,
       min_stock: parseInt(min_stock) || 5,
       requires_refrigeration: requires_refrigeration || false,
-      rfid_uid: rfid_uid || null
+      rfid_uid: rfid_uid || null,
+      units_per_package: parseInt(units_per_package) || 1
     };
     
     const product = await db.createProduct(productData);
@@ -224,13 +225,13 @@ router.put('/:id', sensitiveOperationLimiter, validateId, validateProduct, async
     const fields = [
       'name', 'description', 'product_type', 'active_ingredient',
       'concentration', 'presentation', 'administration_route',
-      'category_id', 'min_stock', 'requires_refrigeration', 'rfid_uid'
+      'category_id', 'min_stock', 'requires_refrigeration', 'rfid_uid', 'units_per_package'
     ];
     
     fields.forEach(field => {
       if (req.body[field] !== undefined) {
-        if (field === 'min_stock' || field === 'category_id') {
-          productData[field] = parseInt(req.body[field]) || null;
+        if (field === 'min_stock' || field === 'category_id' || field === 'units_per_package') {
+          productData[field] = parseInt(req.body[field]) || (field === 'units_per_package' ? 1 : null);
         } else if (field === 'requires_refrigeration') {
           productData[field] = Boolean(req.body[field]);
         } else {

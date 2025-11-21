@@ -158,12 +158,21 @@ async function getAllProductsPaginated(filters = {}) {
       }
     }
 
-    // Construir consulta para obtener productos agrupados por RFID
-    // Primero obtenemos todos los productos/lotes con sus RFIDs
+    // Construir consulta para obtener productos agrupados por LOTE (product_id + lot_number + expiry_date)
+    // El RFID se normaliza y se muestra como código de fachada para identificar el producto
+    // Diferentes lotes = diferentes filas, pero con el mismo código RFID de fachada (normalizado)
+    // Usamos COALESCE para obtener el RFID principal del producto o el primer RFID de los lotes
     let baseQuery = `
       SELECT 
-        COALESCE(pb.rfid_uid, p.rfid_uid) as rfid_code,
         p.id as product_id,
+        pb.lot_number,
+        pb.expiry_date,
+        COALESCE(
+          p.rfid_uid,
+          (SELECT pb2.rfid_uid FROM product_batches pb2 
+           WHERE pb2.product_id = p.id AND pb2.rfid_uid IS NOT NULL 
+           LIMIT 1)
+        ) as rfid_code_raw,
         p.name,
         p.active_ingredient,
         p.concentration,
@@ -174,15 +183,13 @@ async function getAllProductsPaginated(filters = {}) {
         pc.name as category_name,
         p.min_stock,
         p.requires_refrigeration,
-        p.rfid_uid as product_rfid_uid,
-        pb.rfid_uid as batch_rfid_uid,
-        COALESCE(SUM(pb.quantity), 0) as total_stock,
-        MIN(pb.expiry_date) as earliest_expiry,
-        MAX(pb.expiry_date) as latest_expiry
+        p.units_per_package,
+        COALESCE(SUM(pb.quantity), 0) as total_stock
       FROM products p
       LEFT JOIN product_categories pc ON p.category_id = pc.id
-      LEFT JOIN product_batches pb ON pb.product_id = p.id
-      WHERE 1=1
+      INNER JOIN product_batches pb ON pb.product_id = p.id
+      LEFT JOIN batch_rfid_tags brt ON pb.id = brt.batch_id
+      WHERE pb.quantity > 0
     `;
     
     const params = [];
@@ -198,24 +205,26 @@ async function getAllProductsPaginated(filters = {}) {
     if (filters.search) {
       baseQuery += ` AND (
         COALESCE(pb.rfid_uid, p.rfid_uid) = ? 
+        OR brt.rfid_uid = ?
         OR p.id = ?
         OR p.name LIKE ?
         OR p.active_ingredient LIKE ?
         OR p.description LIKE ?
+        OR p.presentation LIKE ?
         OR pb.lot_number LIKE ?
       )`;
       const searchTerm = `%${filters.search}%`;
       const searchValue = filters.search.trim();
       const searchId = isNaN(searchValue) ? -1 : parseInt(searchValue);
-      params.push(searchValue, searchId, searchTerm, searchTerm, searchTerm, searchTerm);
+      params.push(searchValue, searchValue, searchId, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
     }
     if (filters.active_ingredient) {
       baseQuery += ' AND p.active_ingredient LIKE ?';
       params.push(`%${filters.active_ingredient}%`);
     }
     if (filters.rfid_uid) {
-      baseQuery += ' AND (COALESCE(pb.rfid_uid, p.rfid_uid) = ?)';
-      params.push(filters.rfid_uid);
+      baseQuery += ' AND (COALESCE(pb.rfid_uid, p.rfid_uid) = ? OR pb.rfid_uid = ? OR p.rfid_uid = ? OR brt.rfid_uid = ?)';
+      params.push(filters.rfid_uid, filters.rfid_uid, filters.rfid_uid, filters.rfid_uid);
     }
     if (filters.requires_refrigeration !== undefined) {
       baseQuery += ' AND p.requires_refrigeration = ?';
@@ -231,37 +240,38 @@ async function getAllProductsPaginated(filters = {}) {
       baseQuery += ' AND NOT EXISTS (SELECT 1 FROM product_batches pb2 WHERE pb2.product_id = p.id AND pb2.expiry_date < CURDATE() AND pb2.quantity > 0)';
     }
 
-    // Agrupar por RFID y producto
+    // Agrupar solo por PRODUCTO (product_id)
+    // Sumar el stock total de todos los lotes del mismo producto
+    // Mostrar una sola fila por producto con stock total
     baseQuery += ` 
-      GROUP BY COALESCE(pb.rfid_uid, p.rfid_uid), p.id
-      HAVING COALESCE(pb.rfid_uid, p.rfid_uid) IS NOT NULL
+      GROUP BY p.id
     `;
 
-    // Contar total de grupos únicos
+    // Contar total de productos únicos
     const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) as grouped_products`;
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
 
-    // Ahora agrupar por RFID para obtener un registro por RFID con stock total
+    // Obtener productos con stock total sumado (todos los lotes del mismo producto)
+    // El RFID se normalizará después para mostrar como código IDP
     let groupedQuery = `
       SELECT 
-        rfid_code,
-        MAX(name) as name,
-        MAX(active_ingredient) as active_ingredient,
-        MAX(concentration) as concentration,
-        MAX(presentation) as presentation,
-        MAX(product_type) as product_type,
-        MAX(category_name) as category_name,
-        MAX(category_id) as category_id,
-        MAX(min_stock) as min_stock,
-        MAX(requires_refrigeration) as requires_refrigeration,
-        SUM(total_stock) as total_stock,
-        MIN(earliest_expiry) as earliest_expiry,
-        MAX(latest_expiry) as latest_expiry,
-        GROUP_CONCAT(DISTINCT product_id) as product_ids
+        product_id,
+        rfid_code_raw,
+        name,
+        active_ingredient,
+        concentration,
+        presentation,
+        product_type,
+        description,
+        category_id,
+        category_name,
+        min_stock,
+        requires_refrigeration,
+        units_per_package,
+        total_stock
       FROM (${baseQuery}) as grouped_products
-      GROUP BY rfid_code
-      ORDER BY rfid_code DESC
+      ORDER BY name ASC
     `;
 
     // Aplicar paginación
@@ -276,13 +286,21 @@ async function getAllProductsPaginated(filters = {}) {
     const [rows] = await pool.execute(groupedQuery, params);
 
     // Normalizar RFID codes y formatear concentraciones
-    const products = rows.map(row => ({
-      ...row,
-      rfid_code: normalizeRfidCode(row.rfid_code) || row.rfid_code,
-      rfid_uid: normalizeRfidCode(row.rfid_code) || row.rfid_code,
-      concentration: row.concentration ? formatConcentration(row.concentration, row.product_type) : row.concentration,
-      total_stock: parseInt(row.total_stock) || 0
-    }));
+    // El RFID se normaliza para mostrar como código de fachada (identifica el producto)
+    // Diferentes lotes del mismo producto tendrán el mismo código RFID normalizado
+    const products = rows.map(row => {
+      const rfidCodeRaw = row.rfid_code_raw && row.rfid_code_raw.trim() !== '' ? row.rfid_code_raw : null;
+      const normalizedRfid = rfidCodeRaw ? normalizeRfidCode(rfidCodeRaw) || rfidCodeRaw : null;
+      
+      return {
+        ...row,
+        rfid_code: normalizedRfid,
+        rfid_uid: normalizedRfid,
+        concentration: row.concentration ? formatConcentration(row.concentration, row.product_type) : row.concentration,
+        total_stock: parseInt(row.total_stock) || 0,
+        units_per_package: parseInt(row.units_per_package) || 1
+      };
+    });
 
     // Filtrar por stock mínimo/máximo después de obtener resultados
     let filteredProducts = products;
@@ -369,21 +387,22 @@ async function createProduct(productData) {
     const {
       name, description, product_type, active_ingredient, concentration,
       presentation, administration_route, category_id, min_stock,
-      requires_refrigeration, rfid_uid
+      requires_refrigeration, rfid_uid, units_per_package
     } = productData;
 
     const [result] = await pool.execute(
       `INSERT INTO products 
        (name, description, product_type, active_ingredient, concentration,
         presentation, administration_route, category_id, min_stock,
-        requires_refrigeration, rfid_uid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        requires_refrigeration, rfid_uid, units_per_package)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, description || null, product_type || 'medicamento',
         active_ingredient || null, concentration || null,
         presentation || null, administration_route || null,
         category_id || null, min_stock || 5,
-        requires_refrigeration || false, rfid_uid || null
+        requires_refrigeration || false, rfid_uid || null,
+        units_per_package || 1
       ]
     );
     return await getProductById(result.insertId);
@@ -403,7 +422,7 @@ async function updateProduct(id, productData) {
     const fields = [
       'name', 'description', 'product_type', 'active_ingredient',
       'concentration', 'presentation', 'administration_route',
-      'category_id', 'min_stock', 'requires_refrigeration', 'rfid_uid'
+      'category_id', 'min_stock', 'requires_refrigeration', 'rfid_uid', 'units_per_package'
     ];
 
     fields.forEach(field => {
@@ -458,6 +477,16 @@ async function getProductBatches(productId) {
        ORDER BY pb.expiry_date ASC, pb.entry_date ASC`,
       [productId]
     );
+    
+    // Obtener todos los RFID físicos para cada lote
+    for (const row of rows) {
+      const [rfidTags] = await pool.execute(
+        'SELECT rfid_uid FROM batch_rfid_tags WHERE batch_id = ? ORDER BY created_at ASC',
+        [row.id]
+      );
+      row.rfid_tags = rfidTags.map(tag => tag.rfid_uid);
+    }
+    
     return rows;
   } catch (error) {
     throw error;
@@ -478,7 +507,19 @@ async function getBatchById(batchId) {
        WHERE pb.id = ?`,
       [batchId]
     );
-    return rows[0] || null;
+    
+    if (rows.length === 0) return null;
+    
+    const batch = rows[0];
+    
+    // Obtener todos los RFID físicos para este lote
+    const [rfidTags] = await pool.execute(
+      'SELECT rfid_uid FROM batch_rfid_tags WHERE batch_id = ? ORDER BY created_at ASC',
+      [batchId]
+    );
+    batch.rfid_tags = rfidTags.map(tag => tag.rfid_uid);
+    
+    return batch;
   } catch (error) {
     throw error;
   }
@@ -489,15 +530,23 @@ async function getBatchById(batchId) {
  */
 async function getBatchByRfidUid(rfidUid) {
   try {
+    // Normalizar el RFID antes de buscar
+    const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid.toUpperCase().trim();
+    
     const [rows] = await pool.execute(
-      `SELECT pb.*, p.*, pc.name as category_name,
+      `SELECT DISTINCT pb.*, p.*, pc.name as category_name,
               (pb.expiry_date < CURDATE()) as is_expired,
               DATEDIFF(pb.expiry_date, CURDATE()) as days_to_expiry
        FROM product_batches pb
        JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_categories pc ON p.category_id = pc.id
-       WHERE pb.rfid_uid = ?`,
-      [rfidUid]
+       LEFT JOIN batch_rfid_tags brt ON pb.id = brt.batch_id
+       WHERE pb.rfid_uid = ? 
+          OR pb.rfid_uid = ?
+          OR brt.rfid_uid = ?
+          OR brt.rfid_uid = ?
+       LIMIT 1`,
+      [normalizedRfid, rfidUid, normalizedRfid, rfidUid]
     );
     return rows[0] || null;
   } catch (error) {
@@ -518,7 +567,7 @@ async function getBatchesByRfidUid(rfidUid) {
     }
 
     const [rows] = await pool.execute(
-      `SELECT pb.*, 
+      `SELECT DISTINCT pb.*, 
               p.id as product_id,
               p.name as product_name,
               p.active_ingredient,
@@ -536,9 +585,13 @@ async function getBatchesByRfidUid(rfidUid) {
        FROM product_batches pb
        JOIN products p ON pb.product_id = p.id
        LEFT JOIN product_categories pc ON p.category_id = pc.id
-       WHERE pb.rfid_uid = ? OR pb.rfid_uid = ?
+       LEFT JOIN batch_rfid_tags brt ON pb.id = brt.batch_id
+       WHERE pb.rfid_uid = ? 
+          OR pb.rfid_uid = ?
+          OR brt.rfid_uid = ?
+          OR brt.rfid_uid = ?
        ORDER BY pb.expiry_date ASC, p.name ASC`,
-      [normalizedRfid, rfidUid] // Buscar tanto el normalizado como el original
+      [normalizedRfid, rfidUid, normalizedRfid, rfidUid] // Buscar en ambas tablas
     );
     return rows;
   } catch (error) {
@@ -548,19 +601,119 @@ async function getBatchesByRfidUid(rfidUid) {
 }
 
 /**
- * Crear un nuevo lote
+ * Crear un nuevo lote o actualizar uno existente
+ * Si ya existe un lote con el mismo product_id, lot_number y expiry_date,
+ * se actualiza la cantidad sumando la nueva cantidad
+ * Valida que el RFID no esté duplicado
  */
 async function createBatch(batchData) {
   try {
     const { product_id, lot_number, expiry_date, quantity, rfid_uid, entry_date } = batchData;
 
-    const [result] = await pool.execute(
-      `INSERT INTO product_batches 
-       (product_id, lot_number, expiry_date, quantity, rfid_uid, entry_date)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [product_id, lot_number, expiry_date, quantity || 0, rfid_uid || null, entry_date || new Date()]
+    // Buscar si ya existe un lote con el mismo product_id, lot_number y expiry_date
+    const [existingBatches] = await pool.execute(
+      `SELECT id, quantity, rfid_uid FROM product_batches 
+       WHERE product_id = ? AND lot_number = ? AND expiry_date = ?`,
+      [product_id, lot_number, expiry_date]
     );
-    return await getBatchById(result.insertId);
+    
+    // Validar que el RFID no esté duplicado en OTRO lote (si se proporciona)
+    // Permitir múltiples RFID del mismo lote
+    if (rfid_uid) {
+      const normalizedRfid = normalizeRfidCode(rfid_uid) || rfid_uid.toUpperCase().trim();
+      
+      // Verificar si el RFID ya está en batch_rfid_tags de otro lote
+      const [existingRfidTags] = await pool.execute(
+        'SELECT batch_id FROM batch_rfid_tags WHERE rfid_uid = ? LIMIT 1',
+        [normalizedRfid]
+      );
+      
+      if (existingRfidTags.length > 0) {
+        const existingBatchId = existingRfidTags[0].batch_id;
+        
+        // Si estamos actualizando un lote existente, verificar que el RFID no pertenezca a otro lote
+        if (existingBatches.length > 0) {
+          // Si el RFID pertenece a un lote diferente, es error
+          if (existingBatchId !== existingBatches[0].id) {
+            const error = new Error('Este código RFID ya está registrado en otro lote');
+            error.code = 'RFID_DUPLICATE';
+            throw error;
+          }
+          // Si pertenece al mismo lote, está bien (permitir múltiples RFID del mismo lote)
+        } else {
+          // Si estamos creando un nuevo lote, verificar que el RFID no pertenezca a ningún otro lote
+          const [batchInfo] = await pool.execute(
+            'SELECT product_id, lot_number, expiry_date FROM product_batches WHERE id = ?',
+            [existingBatchId]
+          );
+          
+          if (batchInfo.length > 0) {
+            const existingBatch = batchInfo[0];
+            // Solo es error si es de un lote diferente (diferente producto, lote o fecha)
+            if (existingBatch.product_id !== product_id || 
+                existingBatch.lot_number !== lot_number || 
+                new Date(existingBatch.expiry_date).getTime() !== new Date(expiry_date).getTime()) {
+              const error = new Error('Este código RFID ya está registrado en otro lote');
+              error.code = 'RFID_DUPLICATE';
+              throw error;
+            }
+          }
+        }
+      }
+    }
+
+    if (existingBatches.length > 0) {
+      // Lote existente encontrado, actualizar cantidad sumando la nueva
+      const existingBatch = existingBatches[0];
+      const newQuantity = (existingBatch.quantity || 0) + (quantity || 0);
+      
+      await pool.execute(
+        'UPDATE product_batches SET quantity = ? WHERE id = ?',
+        [newQuantity, existingBatch.id]
+      );
+      
+      // Guardar el RFID en batch_rfid_tags (permite múltiples RFID por lote)
+      if (rfid_uid) {
+        const normalizedRfid = normalizeRfidCode(rfid_uid) || rfid_uid.toUpperCase().trim();
+        
+        // Si el lote no tiene RFID principal, asignarlo
+        if (!existingBatch.rfid_uid) {
+          await pool.execute(
+            'UPDATE product_batches SET rfid_uid = ? WHERE id = ?',
+            [normalizedRfid, existingBatch.id]
+          );
+        }
+        
+        // Guardar el RFID en batch_rfid_tags (permite múltiples RFID)
+        await pool.execute(
+          'INSERT IGNORE INTO batch_rfid_tags (batch_id, rfid_uid) VALUES (?, ?)',
+          [existingBatch.id, normalizedRfid]
+        );
+      }
+      
+      return await getBatchById(existingBatch.id);
+    } else {
+      // No existe, crear nuevo lote
+      const normalizedRfid = rfid_uid ? (normalizeRfidCode(rfid_uid) || rfid_uid.toUpperCase().trim()) : null;
+      const [result] = await pool.execute(
+        `INSERT INTO product_batches 
+         (product_id, lot_number, expiry_date, quantity, rfid_uid, entry_date)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [product_id, lot_number, expiry_date, quantity || 0, normalizedRfid, entry_date || new Date()]
+      );
+      
+      const batchId = result.insertId;
+      
+      // Guardar el RFID en batch_rfid_tags (permite múltiples RFID por lote)
+      if (normalizedRfid) {
+        await pool.execute(
+          'INSERT IGNORE INTO batch_rfid_tags (batch_id, rfid_uid) VALUES (?, ?)',
+          [batchId, normalizedRfid]
+        );
+      }
+      
+      return await getBatchById(batchId);
+    }
   } catch (error) {
     throw error;
   }
@@ -576,6 +729,31 @@ async function updateBatchQuantity(batchId, newQuantity) {
       [newQuantity, batchId]
     );
     return await getBatchById(batchId);
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Eliminar un lote (solo para administradores)
+ */
+async function deleteBatch(batchId) {
+  try {
+    // Verificar que el lote existe
+    const batch = await getBatchById(batchId);
+    if (!batch) {
+      const error = new Error('Lote no encontrado');
+      error.code = 'BATCH_NOT_FOUND';
+      throw error;
+    }
+
+    // Eliminar el lote
+    await pool.execute(
+      'DELETE FROM product_batches WHERE id = ?',
+      [batchId]
+    );
+
+    return { success: true, message: 'Lote eliminado correctamente' };
   } catch (error) {
     throw error;
   }
@@ -3036,6 +3214,7 @@ module.exports = {
   getBatchesByRfidUid,
   createBatch,
   updateBatchQuantity,
+  deleteBatch,
   decrementBatchStock,
   // Categorías
   getAllCategories,

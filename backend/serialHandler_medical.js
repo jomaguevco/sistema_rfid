@@ -64,9 +64,10 @@ function initSerial() {
           return;
         }
 
-        if ((jsonData.action === 'remove' || jsonData.action === 'entry') && jsonData.uid) {
+        // Aceptar cualquier acción (remove, entry, o incluso sin acción)
+        if (jsonData.uid) {
           const rfidUid = jsonData.uid.toUpperCase().trim();
-          const action = jsonData.action; // 'remove' o 'entry'
+          const action = jsonData.action || 'detected'; // Por defecto 'detected' si no se especifica
           
           console.log(`📡 RFID detectado - UID: ${rfidUid}, Acción: ${action}`);
           
@@ -82,12 +83,13 @@ function initSerial() {
             if (action === 'entry') {
               console.log(`📡 Emitiendo evento Socket.IO 'rfidEntry':`, eventData);
               global.io.emit('rfidEntry', eventData);
-            } else {
+            } else if (action === 'remove') {
               console.log(`📡 Emitiendo evento Socket.IO 'rfidExit':`, eventData);
               global.io.emit('rfidExit', eventData);
             }
             
-            // También emitir evento genérico para compatibilidad
+            // SIEMPRE emitir evento genérico para compatibilidad (esto es lo que usa el frontend)
+            console.log(`📡 Emitiendo evento Socket.IO 'rfidDetected':`, eventData);
             global.io.emit('rfidDetected', eventData);
             
             console.log(`   Clientes conectados: ${global.io.sockets.sockets.size}`);
