@@ -11,7 +11,7 @@ import Badge from '../components/common/Badge'
 import Loading from '../components/common/Loading'
 import StockDetailModal from '../components/products/StockDetailModal'
 import { formatConcentration, formatRfidCode } from '../utils/formatting'
-import { HiCube, HiWifi, HiStop, HiCollection } from 'react-icons/hi'
+import { HiCube, HiWifi, HiStop, HiCollection, HiTrash } from 'react-icons/hi'
 import './Stock.css'
 
 // Hook personalizado para debounce
@@ -32,7 +32,7 @@ function useDebounce(value, delay) {
 }
 
 export default function Stock() {
-  const { hasAnyRole } = useAuth()
+  const { hasAnyRole, hasRole } = useAuth()
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
@@ -100,9 +100,16 @@ export default function Stock() {
     }
   })
 
+  const [searchByRfid, setSearchByRfid] = useState(false)
   const { lastRFID, listening, startListening, stopListening } = useRFID({
     onDetect: (rfidUid) => {
-      setSearchQuery(rfidUid)
+      if (searchByRfid) {
+        // Buscar el producto por cualquier RFID físico escaneado
+        // El backend buscará en batch_rfid_tags y retornará el producto correspondiente
+        setSearchQuery(rfidUid)
+        setSearchByRfid(false)
+        stopListening()
+      }
     }
   })
 
@@ -116,6 +123,8 @@ export default function Stock() {
   const hasActiveFilters = Object.values(filters).some(v => v !== '')
 
   const handleViewStockDetail = (row) => {
+    // Usar el product_id para obtener todos los lotes del producto
+    // El IDP se normaliza del RFID principal del producto
     const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid
     if (rfid && rfid !== '-') {
       setSelectedRfidCode(rfid)
@@ -126,7 +135,7 @@ export default function Stock() {
   const columns = [
     {
       key: 'rfid_code',
-      header: 'Código RFID',
+      header: 'Código IDP',
       className: 'col-rfid',
       render: (_, row) => {
         const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid || '-'
@@ -167,7 +176,15 @@ export default function Stock() {
       field: 'presentation',
       header: 'Presentación',
       className: 'col-presentation',
-      render: (value) => value || '-'
+      render: (value, row) => {
+        if (!value && !row.units_per_package) return '-'
+        const presentation = value || ''
+        const units = row.units_per_package || 1
+        if (units > 1) {
+          return `${presentation} (${units} por caja)`
+        }
+        return presentation || 'Unidad individual'
+      }
     },
     {
       key: 'total_stock',
@@ -187,6 +204,35 @@ export default function Stock() {
       render: (_, row) => {
         const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid
         const hasRfid = rfid && rfid !== '-'
+        const isAdmin = hasRole('admin')
+        
+        const handleDelete = async () => {
+          if (!window.confirm(`¿Estás seguro de eliminar el lote "${row.lot_number}" del producto "${row.name}"? Esta acción no se puede deshacer.`)) {
+            return
+          }
+
+          try {
+            // Buscar el ID del lote basado en product_id, lot_number y expiry_date
+            const batchesResponse = await api.get(`/batches/product/${row.product_id}`)
+            const batches = batchesResponse.data.data || []
+            const batch = batches.find(b => 
+              b.lot_number === row.lot_number && 
+              b.expiry_date === row.expiry_date
+            )
+
+            if (!batch) {
+              alert('No se pudo encontrar el lote para eliminar')
+              return
+            }
+
+            await api.delete(`/batches/${batch.id}`)
+            queryClient.invalidateQueries(['stock'])
+            alert('Lote eliminado correctamente')
+          } catch (error) {
+            console.error('Error al eliminar lote:', error)
+            alert(error.response?.data?.error || 'Error al eliminar el lote')
+          }
+        }
         
         return (
           <div className="table-actions">
@@ -195,10 +241,21 @@ export default function Stock() {
                 size="sm" 
                 variant="secondary" 
                 onClick={() => handleViewStockDetail(row)}
-                title="Ver stock detallado de todos los lotes con este RFID"
+                title="Ver stock detallado de todos los lotes con este IDP"
               >
                 <HiCollection />
                 Stock
+              </Button>
+            )}
+            {isAdmin && (
+              <Button 
+                size="sm" 
+                variant="danger" 
+                onClick={handleDelete}
+                title="Eliminar lote (solo administradores)"
+              >
+                <HiTrash />
+                Eliminar
               </Button>
             )}
           </div>
@@ -212,7 +269,7 @@ export default function Stock() {
       <div className="page-header">
         <div>
           <h1>Gestión de Stock</h1>
-          <p className="page-subtitle">Ver stock de medicamentos agrupados por RFID</p>
+          <p className="page-subtitle">Ver stock total de medicamentos agrupados por producto. El código IDP identifica cada producto. Presiona "Stock" para ver detalles por lote.</p>
         </div>
       </div>
 
@@ -220,7 +277,7 @@ export default function Stock() {
         <div className="search-section">
           <div className="search-bar">
             <Input
-              placeholder="Buscar por RFID, nombre o principio activo..."
+              placeholder="Buscar por IDP, nombre o principio activo..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -256,11 +313,20 @@ export default function Stock() {
               </Button>
             )}
             <Button
-              variant={listening ? 'danger' : 'secondary'}
-              onClick={listening ? stopListening : startListening}
+              variant={searchByRfid ? 'primary' : 'secondary'}
+              onClick={() => {
+                if (searchByRfid) {
+                  setSearchByRfid(false)
+                  stopListening()
+                } else {
+                  setSearchByRfid(true)
+                  startListening()
+                }
+              }}
+              title="Buscar producto por IDP (escaneo RFID) - Escanea cualquier RFID físico vinculado al medicamento"
             >
-              {listening ? <HiStop /> : <HiWifi />}
-              {listening ? 'Detener' : 'RFID'}
+              {searchByRfid ? <HiStop /> : <HiWifi />}
+              {searchByRfid ? 'Detener Búsqueda' : 'Buscar por IDP'}
             </Button>
           </div>
           {listening && (

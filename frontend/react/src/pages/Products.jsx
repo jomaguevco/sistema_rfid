@@ -191,7 +191,15 @@ export default function Products() {
       field: 'presentation',
       header: 'Presentación',
       className: 'col-presentation',
-      render: (value) => value || '-'
+      render: (value, row) => {
+        if (!value && !row.units_per_package) return '-'
+        const presentation = value || ''
+        const units = row.units_per_package || 1
+        if (units > 1) {
+          return `${presentation} (${units} por caja)`
+        }
+        return presentation || 'Unidad individual'
+      }
     },
     {
       key: 'product_type',

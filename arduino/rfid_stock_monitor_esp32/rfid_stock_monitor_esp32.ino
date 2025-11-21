@@ -245,8 +245,18 @@ void loop() {
     lastReset = millis();
   }
   
-  // MÉTODO 1: PICC_IsNewCardPresent (método estándar)
-  if (mfrc522.PICC_IsNewCardPresent()) {
+  // MÉTODO 1: PICC_IsNewCardPresent (método estándar) - más sensible
+  // Intentar múltiples veces para mejorar detección
+  bool cardPresent = false;
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (mfrc522.PICC_IsNewCardPresent()) {
+      cardPresent = true;
+      break;
+    }
+    delay(10);
+  }
+  
+  if (cardPresent) {
     Serial.println("📡 Tarjeta detectada (método 1)");
     
     if (mfrc522.PICC_ReadCardSerial()) {
@@ -266,8 +276,9 @@ void loop() {
         lastUID = uid;
         lastReadTime = currentTime;
         
-        // Enviar JSON por Serial
-        Serial.print("{\"action\":\"remove\",\"uid\":\"");
+        // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
+        // El backend puede interpretarlo según el contexto de la página
+        Serial.print("{\"action\":\"entry\",\"uid\":\"");
         Serial.print(uid);
         Serial.println("\"}");
         
@@ -285,10 +296,19 @@ void loop() {
     }
   }
   
-  // MÉTODO 2: PICC_RequestA (método alternativo)
+  // MÉTODO 2: PICC_RequestA (método alternativo) - más sensible
   byte bufferATQA[2];
   byte bufferSize = sizeof(bufferATQA);
-  MFRC522::StatusCode status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+  MFRC522::StatusCode status;
+  
+  // Intentar múltiples veces
+  for (int attempt = 0; attempt < 3; attempt++) {
+    status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+    if (status == MFRC522::STATUS_OK) {
+      break;
+    }
+    delay(10);
+  }
   
   if (status == MFRC522::STATUS_OK) {
     Serial.println("🔍 Señal RFID detectada (método 2), leyendo UID...");
@@ -310,8 +330,9 @@ void loop() {
         lastUID = uid;
         lastReadTime = currentTime;
         
-        // Enviar JSON por Serial
-        Serial.print("{\"action\":\"remove\",\"uid\":\"");
+        // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
+        // El backend puede interpretarlo según el contexto de la página
+        Serial.print("{\"action\":\"entry\",\"uid\":\"");
         Serial.print(uid);
         Serial.println("\"}");
         
@@ -333,5 +354,48 @@ void loop() {
     }
   }
   
-  delay(50);  // Delay corto para no saturar
+  // MÉTODO 3: Wake-up A (método adicional para mejorar detección)
+  byte bufferATQA2[2];
+  byte bufferSize2 = sizeof(bufferATQA2);
+  MFRC522::StatusCode status2 = mfrc522.PICC_WakeupA(bufferATQA2, &bufferSize2);
+  
+  if (status2 == MFRC522::STATUS_OK) {
+    Serial.println("🔔 Tag despertado (método 3), leyendo UID...");
+    
+    if (mfrc522.PICC_ReadCardSerial()) {
+      String uid = "";
+      for (byte i = 0; i < mfrc522.uid.size; i++) {
+        if (mfrc522.uid.uidByte[i] < 0x10) {
+          uid += "0";
+        }
+        uid += String(mfrc522.uid.uidByte[i], HEX);
+      }
+      uid.toUpperCase();
+      
+      unsigned long currentTime = millis();
+      if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
+        lastUID = uid;
+        lastReadTime = currentTime;
+        
+        // Enviar JSON por Serial - usar "entry" como acción por defecto
+        // El backend puede interpretarlo según el contexto
+        Serial.print("{\"action\":\"entry\",\"uid\":\"");
+        Serial.print(uid);
+        Serial.println("\"}");
+        
+        Serial.print("✅ Tag detectado: ");
+        Serial.println(uid);
+        
+        mfrc522.PICC_HaltA();
+        mfrc522.PCD_StopCrypto1();
+        delay(500);
+      } else {
+        mfrc522.PICC_HaltA();
+        delay(100);
+      }
+      return;
+    }
+  }
+  
+  delay(10);  // Delay más corto para mejor respuesta
 }

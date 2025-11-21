@@ -81,9 +81,16 @@ export default function StockEntry() {
       if (selectedProduct && listening) {
         const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid
         setScannedRfid(normalizedRfid)
-        setListening(false)
-        stopRFID()
-        setShowBatchForm(true)
+        
+        // En modo múltiple, no detener el escaneo automáticamente
+        if (!multipleMode) {
+          setListening(false)
+          stopRFID()
+          setShowBatchForm(true)
+        } else {
+          // En modo múltiple, mostrar formulario pero mantener escaneo activo
+          setShowBatchForm(true)
+        }
       }
     }
   })
@@ -93,10 +100,11 @@ export default function StockEntry() {
     setSearchProduct('')
     setScannedRfid(null)
     setShowBatchForm(false)
+    // Inicializar cantidad con units_per_package del producto (ej: 10 ampollas por caja)
     setBatchData({
       lot_number: '',
       expiry_date: '',
-      quantity: 1
+      quantity: product.units_per_package || 1
     })
     setErrors({})
     setPendingEntries([])
@@ -129,8 +137,8 @@ export default function StockEntry() {
     if (!batchData.quantity || batchData.quantity < 1) {
       newErrors.quantity = 'La cantidad debe ser mayor a 0'
     }
-    if (!scannedRfid) {
-      newErrors.rfid = 'Debes escanear un RFID primero'
+      if (!scannedRfid) {
+        newErrors.rfid = 'Debes escanear un IDP primero'
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -139,6 +147,18 @@ export default function StockEntry() {
     }
 
     if (multipleMode) {
+      // Validar RFID duplicado
+      const normalizedScannedRfid = normalizeRfidCode(scannedRfid) || scannedRfid
+      const isDuplicate = pendingEntries.some(e => {
+        const normalizedEntryRfid = normalizeRfidCode(e.rfid) || e.rfid
+        return normalizedEntryRfid === normalizedScannedRfid
+      })
+      
+      if (isDuplicate) {
+        setErrors({ rfid: 'Este IDP ya está en la lista' })
+        return
+      }
+      
       // Agregar a lista pendiente
       const entry = {
         id: Date.now(),
@@ -150,14 +170,15 @@ export default function StockEntry() {
       }
       setPendingEntries([...pendingEntries, entry])
       
-      // Limpiar formulario para siguiente entrada
-      setBatchData({
-        lot_number: '',
-        expiry_date: '',
-        quantity: 1
-      })
+      // Mantener datos del formulario, limpiar solo RFID y errores
       setScannedRfid(null)
       setErrors({})
+      
+      // Reiniciar escaneo automáticamente
+      setTimeout(() => {
+        setListening(true)
+        startRFID()
+      }, 300) // Pequeño delay para mejor UX
     } else {
       // Procesar inmediatamente
       processBatch({
@@ -177,6 +198,23 @@ export default function StockEntry() {
 
       const normalizedRfid = normalizeRfidCode(batchDataToProcess.rfid_uid) || batchDataToProcess.rfid_uid
       
+      // Verificar si el RFID ya existe en la base de datos
+      try {
+        const existingBatch = await api.get(`/batches?rfid_uid=${normalizedRfid}`)
+        if (existingBatch.data.data && existingBatch.data.data.length > 0) {
+          setErrors({
+            rfid: 'Este código IDP ya está registrado en otro lote. No se puede duplicar.'
+          })
+          setProcessing(false)
+          return
+        }
+      } catch (checkError) {
+        // Si hay error al verificar, continuar (puede ser que no exista)
+        if (checkError.response?.status !== 400) {
+          console.warn('Error al verificar RFID existente:', checkError)
+        }
+      }
+      
       const response = await api.post('/batches', {
         ...batchDataToProcess,
         rfid_uid: normalizedRfid
@@ -188,6 +226,12 @@ export default function StockEntry() {
         message: 'Lote creado correctamente'
       })
 
+      // Detener escaneo si está activo (solo en modo no múltiple)
+      if (!multipleMode && listening) {
+        setListening(false)
+        stopRFID()
+      }
+      
       // Limpiar formulario
       setShowBatchForm(false)
       setBatchData({
@@ -210,9 +254,18 @@ export default function StockEntry() {
         }
       }, 3000)
     } catch (err) {
-      setErrors({
-        submit: err.response?.data?.error || 'Error al crear el lote'
-      })
+      const errorMessage = err.response?.data?.error || 'Error al crear el lote'
+      
+      // Si es error de IDP duplicado, mostrarlo en el campo IDP
+      if (errorMessage.includes('IDP') || errorMessage.includes('RFID') || errorMessage.includes('duplicado') || errorMessage.includes('ya está registrado')) {
+        setErrors({
+          rfid: errorMessage
+        })
+      } else {
+        setErrors({
+          submit: errorMessage
+        })
+      }
     } finally {
       setProcessing(false)
     }
@@ -235,6 +288,11 @@ export default function StockEntry() {
         })
       }
 
+      // Detener escaneo si está activo
+      if (listening) {
+        setListening(false)
+        stopRFID()
+      }
       setPendingEntries([])
       setSelectedProduct(null)
       setShowBatchForm(false)
@@ -260,7 +318,7 @@ export default function StockEntry() {
     },
     {
       key: 'rfid',
-      header: 'RFID',
+      header: 'IDP',
       render: (_, row) => formatRfidCode(row.rfid)
     },
     {
@@ -300,7 +358,7 @@ export default function StockEntry() {
       <div className="page-header">
         <div>
           <h1>Entrada de Stock</h1>
-          <p className="page-subtitle">Seleccionar producto y escanear RFID para registrar ingreso</p>
+          <p className="page-subtitle">Seleccionar producto y escanear IDP (código que agrupa los RFID físicos) para registrar ingreso</p>
         </div>
       </div>
 
@@ -331,7 +389,16 @@ export default function StockEntry() {
                         <div>
                           <strong>{product.name}</strong>
                           {product.active_ingredient && (
-                            <span className="product-detail">{product.active_ingredient}</span>
+                            <span className="product-detail"> - {product.active_ingredient}</span>
+                          )}
+                          {product.presentation && (
+                            <span className="product-detail"> - {product.presentation}</span>
+                          )}
+                          {product.units_per_package && product.units_per_package > 1 && (
+                            <span className="product-detail"> ({product.units_per_package} por caja)</span>
+                          )}
+                          {product.units_per_package === 1 && (
+                            <span className="product-detail"> (unidad individual)</span>
                           )}
                         </div>
                         <Badge variant={product.product_type === 'medicamento' ? 'primary' : 'info'} size="sm">
@@ -359,6 +426,11 @@ export default function StockEntry() {
                   variant="secondary"
                   size="sm"
                   onClick={() => {
+                    // Detener escaneo si está activo
+                    if (listening) {
+                      setListening(false)
+                      stopRFID()
+                    }
                     setSelectedProduct(null)
                     setScannedRfid(null)
                     setShowBatchForm(false)
@@ -375,10 +447,10 @@ export default function StockEntry() {
             )}
           </div>
 
-          {/* Escaneo RFID */}
+          {/* Escaneo IDP */}
           {selectedProduct && (
             <div className="rfid-scan-section">
-              <h3>2. Escanear RFID</h3>
+              <h3>2. Escanear IDP</h3>
               <div className="scan-controls">
                 <Button
                   variant={listening ? 'danger' : 'primary'}
@@ -388,13 +460,17 @@ export default function StockEntry() {
                   fullWidth
                 >
                   {listening ? <HiStop /> : <HiWifi />}
-                  {listening ? 'Detener Escaneo' : 'Iniciar Escaneo RFID'}
+                  {listening ? 'Detener Escaneo' : 'Iniciar Escaneo IDP'}
                 </Button>
                 
                 {listening && (
                   <div className="rfid-status">
                     <span className="rfid-indicator pulse"></span>
-                    <span>Esperando RFID... Acerca el tag</span>
+                    <span>
+                      {multipleMode 
+                        ? 'Escaneo automático activo - Acerca el siguiente IDP' 
+                        : 'Esperando IDP... Acerca el tag'}
+                    </span>
                     {lastRFID && (
                       <span className="last-rfid">Detectado: {formatRfidCode(lastRFID.uid)}</span>
                     )}
@@ -404,8 +480,14 @@ export default function StockEntry() {
                 {scannedRfid && !listening && (
                   <div className="scanned-rfid">
                     <Badge variant="success" size="lg">
-                      RFID Escaneado: {formatRfidCode(scannedRfid)}
+                      IDP Escaneado: {formatRfidCode(scannedRfid)}
                     </Badge>
+                  </div>
+                )}
+                
+                {errors.rfid && (
+                  <div className="error-message" role="alert" style={{ marginTop: '0.5rem' }}>
+                    {errors.rfid}
                   </div>
                 )}
               </div>
@@ -425,10 +507,15 @@ export default function StockEntry() {
                       setMultipleMode(e.target.checked)
                       if (!e.target.checked) {
                         setPendingEntries([])
+                        // Detener escaneo si está activo
+                        if (listening) {
+                          setListening(false)
+                          stopRFID()
+                        }
                       }
                     }}
                   />
-                  <span>Modo múltiple (agregar varios medicamentos con el mismo RFID)</span>
+                  <span>Modo múltiple (agregar varios medicamentos con diferentes IDP del mismo producto)</span>
                 </label>
               </div>
               
@@ -454,7 +541,7 @@ export default function StockEntry() {
                   error={errors.expiry_date}
                 />
                 <Input
-                  label="Cantidad"
+                  label={`Cantidad${selectedProduct?.units_per_package > 1 ? ` (unidades individuales - ${selectedProduct.units_per_package} por caja)` : ' (unidades)'}`}
                   type="number"
                   min="1"
                   value={batchData.quantity}
@@ -463,6 +550,7 @@ export default function StockEntry() {
                     setErrors({ ...errors, quantity: '' })
                   }}
                   error={errors.quantity}
+                  placeholder={selectedProduct?.units_per_package > 1 ? `Ej: ${selectedProduct.units_per_package} (ampollas/unidades)` : 'Ej: 1'}
                 />
               </div>
 
@@ -499,6 +587,11 @@ export default function StockEntry() {
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    // Detener escaneo si está activo
+                    if (listening) {
+                      setListening(false)
+                      stopRFID()
+                    }
                     setPendingEntries([])
                     setMultipleMode(false)
                   }}
