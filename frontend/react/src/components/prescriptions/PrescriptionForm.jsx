@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import Modal from '../common/Modal'
 import Input from '../common/Input'
 import Button from '../common/Button'
@@ -11,6 +12,7 @@ import './PrescriptionForm.css'
 
 export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
   const queryClient = useQueryClient()
+  const { canViewStock } = useAuth()
   
   const [formData, setFormData] = useState({
     patient_id: '',
@@ -653,11 +655,13 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                         {product.active_ingredient && (
                           <div className="product-dropdown-detail">Principio activo: {product.active_ingredient}</div>
                         )}
-                        <div className="product-dropdown-stock">
-                          Stock: <Badge variant={product.total_stock > 0 ? 'success' : 'error'} size="sm">
-                            {product.total_stock || 0}
-                          </Badge>
-                        </div>
+                        {canViewStock() && product.total_stock !== undefined && (
+                          <div className="product-dropdown-stock">
+                            Stock: <Badge variant={product.total_stock > 0 ? 'success' : 'error'} size="sm">
+                              {product.total_stock || 0}
+                            </Badge>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -671,9 +675,11 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                       )}
                     </div>
                     <div className="product-info-row">
-                      <Badge variant={selectedProductInfo.total_stock > 0 ? 'success' : 'error'} size="sm">
-                        Stock disponible: {selectedProductInfo.total_stock || 0}
-                      </Badge>
+                      {canViewStock() && (
+                        <Badge variant={selectedProductInfo.total_stock > 0 ? 'success' : 'error'} size="sm">
+                          Stock disponible: {selectedProductInfo.total_stock || 0}
+                        </Badge>
+                      )}
                       {selectedProductInfo.requires_refrigeration && (
                         <Badge variant="warning" size="sm">Requiere refrigeración</Badge>
                       )}

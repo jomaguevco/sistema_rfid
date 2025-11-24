@@ -335,6 +335,21 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
                     }
                   },
                   {
+                    key: 'stock_status',
+                    header: 'Stock',
+                    render: (_, row) => {
+                      if (row.is_out_of_stock) {
+                        return (
+                          <Badge variant="error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span>⚠️</span>
+                            <span>Agotado</span>
+                          </Badge>
+                        )
+                      }
+                      return null
+                    }
+                  },
+                  {
                     key: 'instructions',
                     field: 'instructions',
                     header: 'Instrucciones',

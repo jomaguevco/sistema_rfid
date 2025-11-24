@@ -1,5 +1,16 @@
-const { createCanvas, registerFont } = require('canvas');
-const path = require('path');
+let createCanvas, registerFont;
+let canvasAvailable = false;
+
+try {
+  const canvas = require('canvas');
+  createCanvas = canvas.createCanvas;
+  registerFont = canvas.registerFont;
+  canvasAvailable = true;
+} catch (error) {
+  console.warn('⚠️  Módulo canvas no disponible. La generación de imágenes de recetas estará deshabilitada.');
+  console.warn('   Para habilitarla, ejecuta: npm rebuild canvas');
+  canvasAvailable = false;
+}
 
 /**
  * Generar imagen de receta médica
@@ -8,6 +19,10 @@ const path = require('path');
  * @returns {Promise<Buffer>} - Buffer de la imagen PNG
  */
 async function generatePrescriptionImage(prescriptionData, options = {}) {
+  if (!canvasAvailable) {
+    throw new Error('El módulo canvas no está disponible. Por favor ejecuta: npm rebuild canvas');
+  }
+
   const {
     prescription_code,
     patient_name,
@@ -21,13 +36,13 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
 
   // Configuración del canvas
   const width = options.width || 800;
-  const height = options.height || 1200;
+  const height = options.height || 1600;
   const padding = 40;
-  const lineHeight = 30;
-  const titleSize = 32;
-  const headingSize = 24;
-  const bodySize = 18;
-  const smallSize = 14;
+  const lineHeight = 45;
+  const titleSize = 36;
+  const headingSize = 26;
+  const bodySize = 20;
+  const smallSize = 16;
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
@@ -40,28 +55,28 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
   let y = padding;
 
   // Título principal
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = '#1a1a1a';
   ctx.font = `bold ${titleSize}px Arial`;
   ctx.textAlign = 'center';
   ctx.fillText('RECETA MÉDICA', width / 2, y);
-  y += lineHeight * 1.5;
+  y += lineHeight * 2;
 
-  // Línea separadora
-  ctx.strokeStyle = '#000000';
+  // Línea separadora (más suave)
+  ctx.strokeStyle = '#E0E0E0';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  y += lineHeight * 1.5;
+  y += lineHeight * 2;
 
   // Código de receta
   ctx.font = `bold ${headingSize}px Arial`;
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#333333';
+  ctx.fillStyle = '#2c3e50';
   if (prescription_code) {
     ctx.fillText(`Código: ${prescription_code}`, padding, y);
-    y += lineHeight;
+    y += lineHeight * 1.2;
   }
 
   // Fecha
@@ -73,132 +88,134 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
       day: 'numeric'
     });
     ctx.font = `${bodySize}px Arial`;
+    ctx.fillStyle = '#555555';
     ctx.fillText(`Fecha: ${formattedDate}`, padding, y);
-    y += lineHeight * 1.5;
+    y += lineHeight * 2;
   }
 
   // Separador
-  y += lineHeight * 0.5;
-  ctx.strokeStyle = '#CCCCCC';
+  ctx.strokeStyle = '#E0E0E0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  y += lineHeight * 1.5;
+  y += lineHeight * 2;
 
   // Información del paciente
   ctx.font = `bold ${headingSize}px Arial`;
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = '#1a1a1a';
   ctx.fillText('PACIENTE', padding, y);
-  y += lineHeight;
+  y += lineHeight * 1.5;
 
   ctx.font = `${bodySize}px Arial`;
-  ctx.fillStyle = '#333333';
+  ctx.fillStyle = '#2c3e50';
   if (patient_name) {
     ctx.fillText(`Nombre: ${patient_name}`, padding + 20, y);
-    y += lineHeight;
+    y += lineHeight * 1.3;
   }
   if (patient_id_number) {
     ctx.fillText(`DNI: ${patient_id_number}`, padding + 20, y);
-    y += lineHeight;
+    y += lineHeight * 1.3;
   }
-  y += lineHeight * 0.5;
+  y += lineHeight * 1.5;
 
   // Información del médico
   ctx.font = `bold ${headingSize}px Arial`;
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = '#1a1a1a';
   ctx.fillText('MÉDICO', padding, y);
-  y += lineHeight;
+  y += lineHeight * 1.5;
 
   ctx.font = `${bodySize}px Arial`;
-  ctx.fillStyle = '#333333';
+  ctx.fillStyle = '#2c3e50';
   if (doctor_name) {
     ctx.fillText(`Nombre: ${doctor_name}`, padding + 20, y);
-    y += lineHeight;
+    y += lineHeight * 1.3;
   }
   if (doctor_license) {
     ctx.fillText(`Colegiatura: ${doctor_license}`, padding + 20, y);
-    y += lineHeight;
+    y += lineHeight * 1.3;
   }
-  y += lineHeight * 0.5;
+  y += lineHeight * 1.5;
 
   // Separador
-  ctx.strokeStyle = '#CCCCCC';
+  ctx.strokeStyle = '#E0E0E0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  y += lineHeight * 1.5;
+  y += lineHeight * 2;
 
   // Medicamentos
   if (items && items.length > 0) {
     ctx.font = `bold ${headingSize}px Arial`;
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillText('MEDICAMENTOS', padding, y);
-    y += lineHeight * 1.2;
+    y += lineHeight * 2;
 
     ctx.font = `${bodySize}px Arial`;
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = '#2c3e50';
 
     items.forEach((item, index) => {
       // Número y nombre del medicamento
-      ctx.font = `bold ${bodySize}px Arial`;
+      ctx.font = `bold ${bodySize + 2}px Arial`;
+      ctx.fillStyle = '#1a1a1a';
       ctx.fillText(`${index + 1}. ${item.product_name || 'Medicamento'}`, padding + 20, y);
-      y += lineHeight;
+      y += lineHeight * 1.5;
 
       ctx.font = `${smallSize}px Arial`;
+      ctx.fillStyle = '#555555';
       const itemPadding = padding + 40;
       const maxWidth = width - itemPadding - padding;
 
       if (item.active_ingredient) {
         const text = `   Principio Activo: ${item.active_ingredient}`;
-        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 5;
+        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 12;
       }
 
       if (item.concentration) {
         const text = `   Concentración: ${item.concentration}`;
-        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 5;
+        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 12;
       }
 
       const qtyText = `   Cantidad Requerida: ${item.quantity_required || 0} unidades`;
-      y = wrapText(ctx, qtyText, itemPadding, y, maxWidth, smallSize) + 5;
+      y = wrapText(ctx, qtyText, itemPadding, y, maxWidth, smallSize) + 12;
 
       if (item.quantity_dispensed !== undefined) {
         const dispensedText = `   Despachado: ${item.quantity_dispensed || 0} unidades`;
-        y = wrapText(ctx, dispensedText, itemPadding, y, maxWidth, smallSize) + 5;
+        y = wrapText(ctx, dispensedText, itemPadding, y, maxWidth, smallSize) + 12;
       }
 
       if (item.instructions) {
         const instructionsText = `   Instrucciones: ${item.instructions}`;
-        y = wrapText(ctx, instructionsText, itemPadding, y, maxWidth, smallSize) + 5;
+        y = wrapText(ctx, instructionsText, itemPadding, y, maxWidth, smallSize) + 12;
       }
 
-      y += lineHeight * 0.5;
+      y += lineHeight * 1.2;
     });
   }
 
   // Notas adicionales
   if (notes) {
-    y += lineHeight * 0.5;
-    ctx.strokeStyle = '#CCCCCC';
+    y += lineHeight * 1.5;
+    ctx.strokeStyle = '#E0E0E0';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(padding, y);
     ctx.lineTo(width - padding, y);
     ctx.stroke();
-    y += lineHeight * 1.5;
+    y += lineHeight * 2;
 
     ctx.font = `bold ${headingSize}px Arial`;
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillText('NOTAS', padding, y);
-    y += lineHeight;
+    y += lineHeight * 1.5;
 
     ctx.font = `${bodySize}px Arial`;
-    ctx.fillStyle = '#333333';
+    ctx.fillStyle = '#2c3e50';
     const maxWidth = width - padding * 2;
-    y = wrapText(ctx, notes, padding, y, maxWidth, bodySize) + 5;
+    y = wrapText(ctx, notes, padding, y, maxWidth, bodySize) + 15;
   }
 
   // Pie de página con código QR mencionado
@@ -219,7 +236,25 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
   }
 
   // Convertir a buffer
-  return canvas.toBuffer('image/png');
+  // Optimizar imagen: convertir a JPEG con calidad 85% para reducir tamaño
+  // Si el PNG es muy grande, usar JPEG
+  const pngBuffer = canvas.toBuffer('image/png');
+  const pngSizeMB = pngBuffer.length / (1024 * 1024);
+  
+  // Si la imagen PNG es mayor a 1MB, convertir a JPEG con calidad 85%
+  if (pngSizeMB > 1) {
+    try {
+      const jpegBuffer = canvas.toBuffer('image/jpeg', { quality: 0.85 });
+      const jpegSizeMB = jpegBuffer.length / (1024 * 1024);
+      console.log(`📊 Imagen optimizada: PNG ${pngSizeMB.toFixed(2)}MB → JPEG ${jpegSizeMB.toFixed(2)}MB`);
+      return jpegBuffer;
+    } catch (error) {
+      console.warn('⚠️ No se pudo convertir a JPEG, usando PNG:', error.message);
+      return pngBuffer;
+    }
+  }
+  
+  return pngBuffer;
 }
 
 /**
@@ -240,7 +275,7 @@ function wrapText(ctx, text, x, y, maxWidth, fontSize) {
     if (testWidth > maxWidth && n > 0) {
       ctx.fillText(line, x, currentY);
       line = words[n] + ' ';
-      currentY += fontSize + 5;
+      currentY += fontSize + 8;
     } else {
       line = testLine;
     }

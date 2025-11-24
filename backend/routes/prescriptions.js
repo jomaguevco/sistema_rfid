@@ -2,7 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database_medical');
 const { generatePrescriptionQR, generatePrescriptionCode } = require('../utils/qr');
-const { generatePrescriptionImage } = require('../utils/prescriptionImage');
+let generatePrescriptionImage;
+try {
+  const prescriptionImageModule = require('../utils/prescriptionImage');
+  generatePrescriptionImage = prescriptionImageModule.generatePrescriptionImage;
+} catch (error) {
+  console.warn('⚠️  No se pudo cargar el módulo de generación de imágenes de recetas:', error.message);
+  generatePrescriptionImage = null;
+}
 const { authenticateToken } = require('../middleware/auth');
 const whatsappService = require('../services/whatsappService');
 
@@ -141,12 +148,24 @@ router.post('/', authenticateToken, async (req, res) => {
     const prescription = await db.getPrescriptionById(prescriptionId);
     const prescriptionItems = await db.getPrescriptionItems(prescriptionId);
 
+    // Filtrar información de stock según rol (solo admin puede ver stock)
+    const filteredItems = req.user?.role === 'admin' 
+      ? prescriptionItems 
+      : prescriptionItems.map(item => {
+          const { stock_available, ...itemWithoutStock } = item;
+          return {
+            ...itemWithoutStock,
+            // Mantener is_out_of_stock para mostrar advertencias, pero no el número exacto
+            is_out_of_stock: item.is_out_of_stock || false
+          };
+        });
+
     res.json({
       success: true,
       data: {
         ...prescription,
-        items: prescriptionItems,
-        items_count: prescriptionItems.length
+        items: filteredItems,
+        items_count: filteredItems.length
       },
       message: `Receta creada correctamente con código ${prescriptionCode}`,
       qr_code: qrCode,
@@ -204,10 +223,21 @@ router.get('/qr/:code', authenticateToken, async (req, res) => {
       items = [];
     }
 
+    // Filtrar información de stock según rol (solo admin puede ver stock)
+    const filteredItems = req.user?.role === 'admin' 
+      ? items 
+      : items.map(item => {
+          const { stock_available, ...itemWithoutStock } = item;
+          return {
+            ...itemWithoutStock,
+            is_out_of_stock: item.is_out_of_stock || false
+          };
+        });
+
     const responseData = {
       ...prescription,
-      items: items || [],
-      items_count: items ? items.length : 0
+      items: filteredItems || [],
+      items_count: filteredItems ? filteredItems.length : 0
     };
     
     res.json({
@@ -298,10 +328,21 @@ router.get('/:code', authenticateToken, async (req, res) => {
       items = [];
     }
 
+    // Filtrar información de stock según rol (solo admin puede ver stock)
+    const filteredItems = req.user?.role === 'admin' 
+      ? items 
+      : items.map(item => {
+          const { stock_available, ...itemWithoutStock } = item;
+          return {
+            ...itemWithoutStock,
+            is_out_of_stock: item.is_out_of_stock || false
+          };
+        });
+
     const responseData = {
       ...prescription,
-      items: items || [],
-      items_count: items ? items.length : 0,
+      items: filteredItems || [],
+      items_count: filteredItems ? filteredItems.length : 0,
       patient_phone: patientPhone
     };
     
@@ -331,9 +372,20 @@ router.get('/:id/items', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const items = await db.getPrescriptionItems(parseInt(id));
 
+    // Filtrar información de stock según rol (solo admin puede ver stock)
+    const filteredItems = req.user?.role === 'admin' 
+      ? items 
+      : items.map(item => {
+          const { stock_available, ...itemWithoutStock } = item;
+          return {
+            ...itemWithoutStock,
+            is_out_of_stock: item.is_out_of_stock || false
+          };
+        });
+
     res.json({
       success: true,
-      data: items
+      data: filteredItems
     });
   } catch (error) {
     console.error('Error al obtener items de receta:', error);
@@ -388,6 +440,16 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
+    // Verificar si el medicamento está agotado
+    if (batch.quantity === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Medicamento agotado',
+        message: 'Este medicamento está agotado. No se puede despachar hasta que se renueve stock.',
+        is_out_of_stock: true
+      });
+    }
+
     if (batch.quantity < quantityValue) {
       return res.status(400).json({
         success: false,
@@ -428,17 +490,36 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     // Calcular stock restante del lote
     const remainingStock = batch.quantity - quantityValue;
     
-    res.json({
+    // Filtrar información de stock según rol
+    const filteredItems = req.user?.role === 'admin' 
+      ? updatedItems 
+      : updatedItems.map(item => {
+          const { stock_available, ...itemWithoutStock } = item;
+          return {
+            ...itemWithoutStock,
+            is_out_of_stock: item.is_out_of_stock || false
+          };
+        });
+    
+    // Construir respuesta según rol
+    const responseData = {
       success: true,
       data: {
         ...prescription,
-        items: updatedItems,
-        items_count: updatedItems.length
+        items: filteredItems,
+        items_count: filteredItems.length
       },
-      message: `Se despacharon ${quantityValue} unidades individuales del medicamento "${item.product_name || 'N/A'}". Stock restante del lote: ${remainingStock} unidades individuales.`,
-      quantity_dispensed: quantityValue,
-      remaining_stock: remainingStock
-    });
+      message: `Se despacharon ${quantityValue} unidades individuales del medicamento "${item.product_name || 'N/A'}".`,
+      quantity_dispensed: quantityValue
+    };
+    
+    // Solo incluir remaining_stock si es admin
+    if (req.user?.role === 'admin') {
+      responseData.message += ` Stock restante del lote: ${remainingStock} unidades individuales.`;
+      responseData.remaining_stock = remainingStock;
+    }
+    
+    res.json(responseData);
   } catch (error) {
     console.error('Error al despachar item:', error);
     res.status(500).json({
@@ -484,12 +565,16 @@ router.post('/:id/send-whatsapp', authenticateToken, async (req, res) => {
 
     // Generar imagen de la receta
     let prescriptionImageBuffer = null;
-    try {
-      prescriptionImageBuffer = await generatePrescriptionImage(prescriptionData);
-      console.log('✅ Imagen de receta generada correctamente');
-    } catch (imageError) {
-      console.error('⚠️ Error al generar imagen de receta:', imageError.message);
-      // Continuar sin imagen, solo enviar QR
+    if (generatePrescriptionImage) {
+      try {
+        prescriptionImageBuffer = await generatePrescriptionImage(prescriptionData);
+        console.log('✅ Imagen de receta generada correctamente');
+      } catch (imageError) {
+        console.error('⚠️ Error al generar imagen de receta:', imageError.message);
+        // Continuar sin imagen, solo enviar QR
+      }
+    } else {
+      console.warn('⚠️ Generación de imágenes de recetas no disponible (canvas no instalado)');
     }
 
     // Obtener imagen QR (ya está en base64 en prescription.qr_code)

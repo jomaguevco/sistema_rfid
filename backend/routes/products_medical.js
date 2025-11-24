@@ -4,12 +4,35 @@ const db = require('../database_medical');
 const { sensitiveOperationLimiter } = require('../middleware/rateLimiter');
 const { validateProduct, validateId } = require('../middleware/validation');
 const { paginate, createPaginatedResponse } = require('../middleware/pagination');
+const { authenticateToken } = require('../middleware/auth');
+
+/**
+ * Helper para filtrar información de stock según rol
+ * Solo admin puede ver información de stock
+ */
+function filterStockForRole(data, userRole) {
+  if (userRole === 'admin') {
+    return data;
+  }
+  
+  // Si es un array, filtrar cada elemento
+  if (Array.isArray(data)) {
+    return data.map(item => {
+      const { total_stock, stock_available, ...itemWithoutStock } = item;
+      return itemWithoutStock;
+    });
+  }
+  
+  // Si es un objeto, filtrar campos de stock
+  const { total_stock, stock_available, ...dataWithoutStock } = data;
+  return dataWithoutStock;
+}
 
 /**
  * GET /api/products
  * Obtener todos los productos con filtros y paginación
  */
-router.get('/', paginate, async (req, res) => {
+router.get('/', paginate, authenticateToken, async (req, res) => {
   try {
     // Log silencioso - solo para debugging si es necesario
     const filters = {
@@ -28,9 +51,11 @@ router.get('/', paginate, async (req, res) => {
     };
     
     const { products, total } = await db.getAllProductsPaginated(filters);
-    // Log silencioso - solo mostrar en caso de error
     
-    res.json(createPaginatedResponse(products, total, req.pagination));
+    // Filtrar información de stock según rol
+    const filteredProducts = filterStockForRole(products, req.user?.role);
+    
+    res.json(createPaginatedResponse(filteredProducts, total, req.pagination));
   } catch (error) {
     console.error('✗ Error en GET /api/products:', error);
     console.error('Stack:', error.stack);
@@ -46,7 +71,7 @@ router.get('/', paginate, async (req, res) => {
  * GET /api/products/catalog
  * Obtener catálogo de productos (sin agrupar por RFID, para administración)
  */
-router.get('/catalog', paginate, async (req, res) => {
+router.get('/catalog', paginate, authenticateToken, async (req, res) => {
   try {
     // Log silencioso - solo para debugging si es necesario
     const filters = {
@@ -69,9 +94,10 @@ router.get('/catalog', paginate, async (req, res) => {
     // Luego obtener productos paginados
     const products = await db.getAllProducts(filters);
     
-    // Log silencioso - solo mostrar en caso de error
+    // Filtrar información de stock según rol
+    const filteredProducts = filterStockForRole(products, req.user?.role);
     
-    res.json(createPaginatedResponse(products, total, req.pagination));
+    res.json(createPaginatedResponse(filteredProducts, total, req.pagination));
   } catch (error) {
     console.error('✗ Error en GET /api/products/catalog:', error);
     res.status(500).json({
@@ -85,7 +111,7 @@ router.get('/catalog', paginate, async (req, res) => {
  * GET /api/products/:id
  * Obtener un producto por ID
  */
-router.get('/:id', validateId, async (req, res) => {
+router.get('/:id', validateId, authenticateToken, async (req, res) => {
   try {
     const productId = parseInt(req.params.id);
     const product = await db.getProductById(productId);
@@ -96,6 +122,9 @@ router.get('/:id', validateId, async (req, res) => {
         error: 'Producto no encontrado'
       });
     }
+    
+    // Filtrar información de stock según rol
+    const filteredProduct = filterStockForRole(product, req.user?.role);
     
     res.json({
       success: true,

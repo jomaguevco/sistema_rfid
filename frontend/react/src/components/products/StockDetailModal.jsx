@@ -19,6 +19,16 @@ export default function StockDetailModal({ rfidCode, isOpen, onClose }) {
   const [searchRfid, setSearchRfid] = useState('')
   const [searchByRfid, setSearchByRfid] = useState(false)
   const isAdmin = hasRole('admin')
+  
+  // Si no es admin, no mostrar el modal
+  if (!isAdmin) {
+    return null
+  }
+
+  // Solo admin puede ver este modal
+  if (!isAdmin) {
+    return null
+  }
 
   // Primero obtener lotes por IDP para obtener el product_id
   const { data: batchesByRfid, isLoading: loadingByRfid } = useQuery({

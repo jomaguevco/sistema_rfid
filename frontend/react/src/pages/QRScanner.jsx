@@ -17,7 +17,107 @@ export default function QRScanner() {
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const [scanner, setScanner] = useState(null)
+  const [cameraPermissionGranted, setCameraPermissionGranted] = useState(false)
+  const [availableCameras, setAvailableCameras] = useState([])
+  const [selectedCameraId, setSelectedCameraId] = useState(null)
+  const [requestingPermission, setRequestingPermission] = useState(false)
   const scannerRef = useRef(null)
+
+  // Función para solicitar permisos explícitamente
+  const requestCameraPermission = async () => {
+    try {
+      setRequestingPermission(true)
+      setError('')
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Tu navegador no soporta acceso a la cámara.')
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      stream.getTracks().forEach(track => track.stop())
+      setCameraPermissionGranted(true)
+      setError('') // Limpiar errores anteriores
+      
+      // Listar cámaras disponibles después de obtener permisos
+      try {
+        const devices = await Html5Qrcode.getCameras()
+        if (devices && devices.length > 0) {
+          setAvailableCameras(devices)
+          const backCamera = devices.find(device => 
+            device.label.toLowerCase().includes('back') || 
+            device.label.toLowerCase().includes('rear') ||
+            device.label.toLowerCase().includes('environment')
+          )
+          setSelectedCameraId(backCamera ? backCamera.id : devices[devices.length - 1].id) // Usar la última si no hay trasera
+        }
+      } catch (camErr) {
+        console.log('No se pudieron listar las cámaras:', camErr)
+      }
+    } catch (err) {
+      console.error('Error al solicitar permisos:', err)
+      
+      // Si el usuario canceló, no mostrar error
+      if (err.name === 'NotAllowedError' && (err.message?.includes('cancel') || err.message?.includes('denied'))) {
+        setError('')
+        setCameraPermissionGranted(false)
+        return
+      }
+      
+      let errorMsg = 'No se pudieron obtener los permisos de cámara. '
+      if (err.name === 'NotAllowedError') {
+        errorMsg += 'Por favor, permite el acceso a la cámara en la configuración del navegador.'
+      } else if (err.name === 'NotFoundError') {
+        errorMsg += 'No se encontró ninguna cámara disponible.'
+      } else {
+        errorMsg += err.message || 'Verifica la configuración de tu navegador.'
+      }
+      setError(errorMsg)
+    } finally {
+      setRequestingPermission(false)
+    }
+  }
+
+  // Verificar permisos de cámara y listar cámaras disponibles
+  useEffect(() => {
+    const checkCameraPermission = async () => {
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          // Intentar obtener permisos
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+          stream.getTracks().forEach(track => track.stop()) // Detener inmediatamente
+          setCameraPermissionGranted(true)
+          
+          // Listar cámaras disponibles
+          try {
+            const devices = await Html5Qrcode.getCameras()
+            if (devices && devices.length > 0) {
+              setAvailableCameras(devices)
+              // Seleccionar cámara trasera por defecto si está disponible
+              const backCamera = devices.find(device => 
+                device.label.toLowerCase().includes('back') || 
+                device.label.toLowerCase().includes('rear') ||
+                device.label.toLowerCase().includes('environment')
+              )
+              setSelectedCameraId(backCamera ? backCamera.id : devices[0].id)
+            }
+          } catch (camErr) {
+            console.log('No se pudieron listar las cámaras:', camErr)
+          }
+        } else {
+          // Verificar si estamos en localhost (puede requerir HTTPS)
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            setError('Tu navegador requiere HTTPS para acceder a la cámara. Por favor usa el input manual o accede mediante HTTPS.')
+          } else {
+            setError('Tu navegador no soporta acceso a la cámara. Por favor usa el input manual.')
+          }
+        }
+      } catch (err) {
+        console.log('Permisos de cámara no otorgados aún:', err.message)
+        setCameraPermissionGranted(false)
+      }
+    }
+    checkCameraPermission()
+  }, [])
 
   const { data: prescription, isLoading, refetch } = useQuery({
     queryKey: ['prescription-qr', qrCode],
@@ -55,41 +155,163 @@ export default function QRScanner() {
       setError('')
       setScanning(true)
       
+      // Verificar si hay dispositivos de cámara disponibles
+      const devices = await Html5Qrcode.getCameras()
+      if (!devices || devices.length === 0) {
+        throw new Error('No se encontraron cámaras disponibles en este dispositivo.')
+      }
+      
+      console.log('Cámaras disponibles:', devices.length, devices.map(d => ({ id: d.id, label: d.label })))
+      
       const html5QrCode = new Html5Qrcode('qr-reader')
       
-      await html5QrCode.start(
-        { facingMode: 'environment' }, // Usar cámara trasera
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 }
-        },
-        (decodedText) => {
-          // QR detectado
-          handleQRDetected(decodedText)
-        },
-        (errorMessage) => {
-          // Ignorar errores de escaneo continuo
-        }
-      )
+      // Determinar qué cámara usar
+      let cameraId = selectedCameraId
       
-      setScanner(html5QrCode)
+      // Si no hay cámara seleccionada, intentar encontrar la mejor
+      if (!cameraId) {
+        // Priorizar cámara trasera si está disponible
+        const backCamera = devices.find(device => 
+          device.label.toLowerCase().includes('back') || 
+          device.label.toLowerCase().includes('rear') ||
+          device.label.toLowerCase().includes('environment') ||
+          device.label.toLowerCase().includes('trasera')
+        )
+        cameraId = backCamera ? backCamera.id : devices[devices.length - 1].id // Usar la última si no hay trasera
+      }
+      
+      // Intentar iniciar con la cámara seleccionada
+      let lastError = null
+      let cameraIndex = devices.findIndex(d => d.id === cameraId)
+      if (cameraIndex === -1) cameraIndex = 0
+      
+      // Intentar con todas las cámaras si la primera falla
+      for (let i = 0; i < devices.length; i++) {
+        const currentCameraId = devices[cameraIndex].id
+        const currentCameraLabel = devices[cameraIndex].label
+        
+        try {
+          console.log(`Intentando con cámara ${i + 1}/${devices.length}: ${currentCameraLabel || currentCameraId}`)
+          
+          await html5QrCode.start(
+            currentCameraId,
+            {
+              fps: 10,
+              qrbox: { width: 250, height: 250 },
+              aspectRatio: 1.0
+            },
+            (decodedText) => {
+              // QR detectado
+              handleQRDetected(decodedText)
+            },
+            (errorMessage) => {
+              // Ignorar errores de escaneo continuo (no es un QR válido aún)
+              // No mostrar estos errores al usuario
+            }
+          )
+          
+          // Si llegamos aquí, la cámara funcionó
+          console.log(`✅ Cámara funcionando: ${currentCameraLabel || currentCameraId}`)
+          setSelectedCameraId(currentCameraId)
+          setScanner(html5QrCode)
+          return // Salir del bucle si funciona
+          
+        } catch (camErr) {
+          console.warn(`❌ Cámara ${i + 1} falló:`, camErr.message)
+          lastError = camErr
+          
+          // Si el usuario canceló, no intentar con otras cámaras
+          if (camErr.name === 'NotAllowedError' || camErr.message?.includes('cancel') || camErr.message?.includes('denied')) {
+            throw camErr // Re-lanzar para que se maneje como cancelación
+          }
+          
+          // Limpiar el scanner antes de intentar con la siguiente
+          try {
+            await html5QrCode.stop().catch(() => {})
+            await html5QrCode.clear().catch(() => {})
+          } catch (cleanErr) {
+            // Ignorar errores de limpieza, especialmente "not running"
+            if (!cleanErr.message?.includes('not running') && !cleanErr.message?.includes('paused')) {
+              console.log('Error al limpiar (ignorado):', cleanErr.message)
+            }
+          }
+          
+          // Intentar con la siguiente cámara
+          cameraIndex = (cameraIndex + 1) % devices.length
+        }
+      }
+      
+      // Si llegamos aquí, ninguna cámara funcionó
+      throw lastError || new Error('No se pudo acceder a ninguna cámara disponible.')
+      
     } catch (err) {
       console.error('Error al iniciar escáner:', err)
-      setError('No se pudo acceder a la cámara. Verifica los permisos o usa el input manual.')
+      
+      // Si el usuario canceló, no mostrar error
+      if (err.name === 'NotAllowedError' && err.message?.includes('cancel')) {
+        setError('')
+        setScanning(false)
+        setScanner(null)
+        return
+      }
+      
+      let errorMessage = 'No se pudo acceder a la cámara. '
+      
+      if (err.name === 'NotAllowedError' || err.message?.includes('permission') || err.message?.includes('denied')) {
+        errorMessage += 'El acceso a la cámara fue denegado. Por favor, permite el acceso a la cámara en la configuración del navegador.'
+      } else if (err.name === 'NotFoundError' || err.message?.includes('camera') || err.message?.includes('dispositivo')) {
+        errorMessage += 'No se encontró ninguna cámara disponible. Verifica que tu dispositivo tenga una cámara conectada.'
+      } else if (err.message && !err.message.includes('not running') && !err.message.includes('paused')) {
+        errorMessage += err.message
+      } else {
+        errorMessage += 'Verifica los permisos o usa el input manual.'
+      }
+      
+      setError(errorMessage)
       setScanning(false)
+      
+      // Limpiar scanner si se creó, ignorando errores de "not running"
+      if (scanner) {
+        try {
+          await scanner.stop().catch((stopErr) => {
+            if (!stopErr.message?.includes('not running') && !stopErr.message?.includes('paused')) {
+              console.error('Error al detener scanner:', stopErr)
+            }
+          })
+          await scanner.clear().catch(() => {})
+        } catch (e) {
+          // Ignorar todos los errores de limpieza
+        }
+        setScanner(null)
+      }
     }
   }
 
   const stopScanning = async () => {
     try {
       if (scanner) {
-        await scanner.stop()
-        await scanner.clear()
+        try {
+          await scanner.stop()
+        } catch (stopErr) {
+          // Ignorar errores si el scanner no está corriendo
+          if (!stopErr.message?.includes('not running') && !stopErr.message?.includes('paused')) {
+            console.error('Error al detener escáner:', stopErr)
+          }
+        }
+        try {
+          await scanner.clear()
+        } catch (clearErr) {
+          // Ignorar errores de limpieza
+          console.log('Error al limpiar escáner (ignorado):', clearErr.message)
+        }
         setScanner(null)
       }
       setScanning(false)
     } catch (err) {
       console.error('Error al detener escáner:', err)
+      // Asegurar que el estado se actualice incluso si hay error
+      setScanning(false)
+      setScanner(null)
     }
   }
 
@@ -137,13 +359,95 @@ export default function QRScanner() {
           <div className="scanner-section">
             <div className="scanner-controls">
               {!scanning ? (
-                <Button
-                  variant="primary"
-                  onClick={startScanning}
-                  icon={<HiCamera />}
-                >
-                  Activar Cámara
-                </Button>
+                <>
+                  {!cameraPermissionGranted ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', maxWidth: '400px' }}>
+                      <Button
+                        variant="primary"
+                        onClick={requestCameraPermission}
+                        icon={<HiCamera />}
+                        loading={requestingPermission}
+                        fullWidth
+                      >
+                        Solicitar Permisos de Cámara
+                      </Button>
+                      <div style={{ 
+                        fontSize: 'var(--font-size-sm)', 
+                        color: 'var(--color-gray-600)', 
+                        textAlign: 'center',
+                        padding: '0.75rem 1rem',
+                        background: 'var(--color-info-light)',
+                        borderRadius: 'var(--border-radius-md)',
+                        borderLeft: '4px solid var(--color-info)',
+                        fontWeight: 'var(--font-weight-medium)'
+                      }}>
+                        💡 Primero necesitas otorgar permisos de cámara al navegador
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {availableCameras.length > 1 && (
+                        <div style={{ marginBottom: '1rem', width: '100%', maxWidth: '400px' }}>
+                          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>
+                            Seleccionar cámara antes de activar:
+                          </label>
+                          <select
+                            value={selectedCameraId || availableCameras[availableCameras.length - 1]?.id || ''}
+                            onChange={(e) => setSelectedCameraId(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              borderRadius: '6px',
+                              border: '1px solid #d1d5db',
+                              fontSize: '0.875rem',
+                              marginBottom: '0.5rem'
+                            }}
+                          >
+                            {availableCameras.map((camera, index) => (
+                              <option key={camera.id} value={camera.id}>
+                                {camera.label || `Cámara ${index + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                          <div style={{ 
+                            fontSize: 'var(--font-size-xs)', 
+                            color: 'var(--color-gray-600)', 
+                            textAlign: 'left',
+                            padding: '0.5rem 0.75rem',
+                            background: 'var(--color-warning-light)',
+                            borderRadius: 'var(--border-radius-sm)',
+                            borderLeft: '3px solid var(--color-warning)',
+                            marginTop: '0.5rem'
+                          }}>
+                            💡 Si la primera cámara no funciona, selecciona la segunda antes de activar
+                          </div>
+                        </div>
+                      )}
+                      <Button
+                        variant="primary"
+                        onClick={startScanning}
+                        icon={<HiCamera />}
+                      >
+                        Activar Cámara
+                      </Button>
+                      {availableCameras.length > 0 && (
+                        <div style={{ 
+                          marginTop: '0.5rem', 
+                          padding: '0.75rem 1rem',
+                          background: 'var(--color-success-light)',
+                          borderRadius: 'var(--border-radius-md)',
+                          borderLeft: '4px solid var(--color-success)',
+                          textAlign: 'center',
+                          fontSize: 'var(--font-size-sm)',
+                          color: 'var(--color-gray-700)',
+                          fontWeight: 'var(--font-weight-medium)'
+                        }}>
+                          ✓ {availableCameras.length} cámara(s) disponible(s)
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               ) : (
                 <Button
                   variant="danger"
@@ -157,6 +461,59 @@ export default function QRScanner() {
 
             {scanning && (
               <div className="scanner-preview">
+                {availableCameras.length > 1 && (
+                  <div style={{ marginBottom: '1rem', width: '100%' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>
+                      Seleccionar cámara:
+                    </label>
+                    <select
+                      value={selectedCameraId || ''}
+                      onChange={async (e) => {
+                        const newCameraId = e.target.value
+                        setSelectedCameraId(newCameraId)
+                        // Detener escáner actual
+                        if (scanner) {
+                          try {
+                            await scanner.stop()
+                            await scanner.clear()
+                            setScanner(null)
+                          } catch (err) {
+                            console.error('Error al detener escáner:', err)
+                          }
+                        }
+                        setScanning(false)
+                        // Reiniciar con nueva cámara después de un breve delay
+                        setTimeout(() => {
+                          startScanning()
+                        }, 300)
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        borderRadius: '6px',
+                        border: '1px solid #d1d5db',
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      {availableCameras.map((camera, index) => (
+                        <option key={camera.id} value={camera.id}>
+                          {camera.label || `Cámara ${index + 1}`} {camera.id === selectedCameraId ? '(En uso)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ 
+                      marginTop: '0.5rem', 
+                      fontSize: 'var(--font-size-xs)', 
+                      color: 'var(--color-gray-600)',
+                      padding: '0.5rem 0.75rem',
+                      background: 'var(--color-warning-light)',
+                      borderRadius: 'var(--border-radius-sm)',
+                      borderLeft: '3px solid var(--color-warning)'
+                    }}>
+                      💡 Si la primera cámara no funciona, selecciona la segunda cámara del menú
+                    </div>
+                  </div>
+                )}
                 <div id="qr-reader" ref={scannerRef}></div>
                 <p className="scanner-hint">Apunta la cámara al código QR de la receta</p>
               </div>
@@ -200,7 +557,22 @@ export default function QRScanner() {
           {error && (
             <div className="error-message">
               <HiX className="icon" />
-              {error}
+              <div>
+                <strong>{error}</strong>
+                {(error.includes('permiso') || error.includes('permission')) && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                    <strong>Instrucciones para otorgar permisos:</strong>
+                    <ul style={{ marginTop: '0.25rem', paddingLeft: '1.5rem', textAlign: 'left' }}>
+                      <li><strong>Chrome/Edge:</strong> Haz clic en el ícono de candado en la barra de direcciones → Permisos → Cámara → Permitir</li>
+                      <li><strong>Firefox:</strong> Haz clic en el ícono de candado → Permisos → Cámara → Permitir</li>
+                      <li><strong>Brave:</strong> Configuración → Privacidad → Permisos del sitio → Cámara</li>
+                    </ul>
+                    <p style={{ marginTop: '0.5rem' }}>
+                      También puedes usar el <strong>input manual</strong> ingresando el código de la receta directamente.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

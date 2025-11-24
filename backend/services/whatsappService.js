@@ -74,12 +74,17 @@ class WhatsAppService {
   async sendMessage(phoneNumber, message) {
     try {
       // Normalizar número de teléfono (eliminar espacios, guiones, etc.)
-      const normalizedPhone = phoneNumber.replace(/[^0-9]/g, '');
+      let normalizedPhone = phoneNumber.replace(/[^0-9]/g, '');
       
-      if (!normalizedPhone || normalizedPhone.length < 9) {
+      // Si no tiene código de país, asumir Perú (51)
+      if (!normalizedPhone.startsWith('51')) {
+        normalizedPhone = '51' + normalizedPhone;
+      }
+      
+      if (!normalizedPhone || normalizedPhone.length < 11) {
         return {
           success: false,
-          error: 'Número de teléfono inválido. Debe tener al menos 9 dígitos.'
+          error: 'Número de teléfono inválido. Debe tener al menos 9 dígitos (con código de país 51 para Perú).'
         };
       }
 
@@ -298,22 +303,34 @@ class WhatsAppService {
     try {
       const normalizedPhone = phoneNumber.replace(/[^0-9]/g, '');
       
+      // Verificar conexión primero usando HTTP
+      const connected = await this.isConnected();
+      if (!connected) {
+        return {
+          success: false,
+          error: 'WhatsApp no está conectado. Por favor:\n1. Verifica que medichat esté corriendo en http://localhost:3001\n2. Escanea el código QR de WhatsApp en la ventana de medichat\n3. Espera a ver "WhatsApp conectado exitosamente"'
+        };
+      }
+      
       // Intentar usar directamente el módulo de WhatsApp si está disponible
       const medichatPath = process.env.MEDICHAT_PATH || path.join(__dirname, '../../medichat');
       const whatsappHandlerPath = path.join(medichatPath, 'src/whatsapp-baileys.js');
       
       let whatsappHandler = null;
+      let useDirectModule = false;
       try {
         whatsappHandler = require(whatsappHandlerPath);
+        if (whatsappHandler && whatsappHandler.isConnected && whatsappHandler.isConnected()) {
+          useDirectModule = true;
+        }
       } catch (requireError) {
-        console.warn('⚠️ No se puede importar módulo de WhatsApp directamente');
+        console.log('📡 No se puede importar módulo directamente, usando HTTP');
+        useDirectModule = false;
       }
 
-      if (!whatsappHandler || !whatsappHandler.isConnected || !whatsappHandler.isConnected()) {
-        return {
-          success: false,
-          error: 'WhatsApp no está conectado. Por favor verifica que medichat esté corriendo y WhatsApp esté conectado.'
-        };
+      // Si no se puede usar el módulo directamente, usar HTTP
+      if (!useDirectModule) {
+        return await this.sendPrescriptionViaHTTP(normalizedPhone, prescriptionData, prescriptionImageData, qrImageData);
       }
 
       // Convertir imagen de receta a buffer si es necesario
@@ -331,10 +348,31 @@ class WhatsAppService {
         }
       }
 
+      // Enviar mensaje inicial simple para "romper el hielo" y evitar bloqueos
+      // Usar un mensaje más natural y menos robótico
+      try {
+        console.log(`📤 [0/4] Enviando mensaje inicial...`);
+        const initialMessage = `Hola! Te envío tu receta médica ahora.`;
+        await whatsappHandler.sendMessage(normalizedPhone, initialMessage);
+        console.log('✅ [0/4] Mensaje inicial enviado correctamente');
+        
+        // Esperar MUCHO más tiempo antes de enviar imágenes (15-25 segundos)
+        // Esto hace que parezca más humano y menos automático
+        const initialDelay = 15000 + Math.random() * 10000; // 15-25 segundos
+        console.log(`⏳ Esperando ${Math.round(initialDelay/1000)}s antes de enviar imágenes (simulando comportamiento humano)...`);
+        await new Promise(resolve => setTimeout(resolve, initialDelay));
+      } catch (initialError) {
+        console.warn('⚠️ [0/4] No se pudo enviar mensaje inicial:', initialError.message);
+        // Continuar de todas formas
+      }
+
       // Enviar imagen de receta primero con caption
       if (prescriptionBuffer) {
         try {
           const caption = `📋 Receta Médica\nCódigo: ${prescriptionData.prescription_code || 'N/A'}`;
+          const imageSizeMB = (prescriptionBuffer.length / (1024 * 1024)).toFixed(2);
+          console.log(`📤 [1/3] Enviando imagen de receta detallada (${imageSizeMB}MB)...`);
+          
           const prescriptionResult = await whatsappHandler.sendImage(
             normalizedPhone,
             prescriptionBuffer,
@@ -343,13 +381,30 @@ class WhatsAppService {
           );
           
           if (prescriptionResult) {
-            console.log('✅ Imagen de receta enviada correctamente');
+            console.log('✅ [1/4] Imagen de receta detallada enviada correctamente');
+            // Esperar MUCHO más tiempo entre imágenes (20-30 segundos)
+            // Esto simula el comportamiento humano de esperar antes de enviar otra imagen
+            const delay = 20000 + Math.random() * 10000; // 20-30 segundos
+            console.log(`⏳ Esperando ${Math.round(delay/1000)}s antes de enviar QR (simulando comportamiento humano)...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           } else {
-            console.warn('⚠️ No se pudo enviar imagen de receta');
+            console.error('❌ [1/3] No se pudo enviar imagen de receta detallada');
+            // Si falla la imagen, enviar mensaje de texto con los detalles
+            await this.sendPrescriptionAsText(normalizedPhone, prescriptionData, whatsappHandler);
           }
         } catch (prescriptionError) {
-          console.warn('⚠️ Error al enviar imagen de receta:', prescriptionError.message);
+          console.error('❌ [1/3] Error al enviar imagen de receta:', prescriptionError.message);
+          // Si falla la imagen, enviar mensaje de texto con los detalles
+          try {
+            await this.sendPrescriptionAsText(normalizedPhone, prescriptionData, whatsappHandler);
+          } catch (textError) {
+            console.error('❌ Error al enviar receta como texto:', textError.message);
+          }
         }
+      } else {
+        console.warn('⚠️ No hay imagen de receta para enviar, enviando solo como texto');
+        // Si no hay imagen, enviar mensaje de texto detallado
+        await this.sendPrescriptionAsText(normalizedPhone, prescriptionData, whatsappHandler);
       }
 
       // Convertir QR a buffer si es necesario
@@ -370,6 +425,9 @@ class WhatsAppService {
       // Enviar QR como segunda imagen
       if (qrBuffer) {
         try {
+          const qrSizeMB = (qrBuffer.length / (1024 * 1024)).toFixed(2);
+          console.log(`📤 [2/3] Enviando código QR (${qrSizeMB}MB)...`);
+          
           const qrResult = await whatsappHandler.sendImage(
             normalizedPhone,
             qrBuffer,
@@ -378,23 +436,20 @@ class WhatsAppService {
           );
           
           if (qrResult) {
-            console.log('✅ Imagen QR enviada correctamente');
+            console.log('✅ [2/4] Código QR enviado correctamente');
+            // No enviar más mensajes - las imágenes son autoexplicativas
+            // El mensaje de resumen ya fue eliminado anteriormente
           } else {
-            console.warn('⚠️ No se pudo enviar imagen QR');
+            console.error('❌ [2/3] No se pudo enviar código QR');
           }
         } catch (qrError) {
-          console.warn('⚠️ Error al enviar imagen QR:', qrError.message);
+          console.error('❌ [2/3] Error al enviar código QR:', qrError.message);
         }
+      } else {
+        console.warn('⚠️ No hay código QR para enviar');
       }
 
-      // Opcionalmente enviar mensaje de texto como resumen
-      try {
-        const summaryMessage = `📋 *Receta Médica Enviada*\n\nCódigo: ${prescriptionData.prescription_code || 'N/A'}\nPaciente: ${prescriptionData.patient_name || 'N/A'}\n\nLas imágenes de la receta y el código QR han sido enviadas arriba.`;
-        await whatsappHandler.sendMessage(normalizedPhone, summaryMessage);
-      } catch (messageError) {
-        // No es crítico si falla el mensaje de texto
-        console.warn('⚠️ No se pudo enviar mensaje de resumen:', messageError.message);
-      }
+      // Mensaje de resumen eliminado - las imágenes son autoexplicativas
 
       return {
         success: true,
@@ -402,10 +457,226 @@ class WhatsAppService {
       };
     } catch (error) {
       console.error('❌ Error al enviar receta a WhatsApp:', error.message);
+      
+      // Si falla con módulo directo, intentar con HTTP
+      if (error.message?.includes('no está conectado') || error.message?.includes('not connected')) {
+        try {
+          const normalizedPhone = phoneNumber.replace(/[^0-9]/g, '');
+          return await this.sendPrescriptionViaHTTP(normalizedPhone, prescriptionData, prescriptionImageData, qrImageData);
+        } catch (httpError) {
+          return {
+            success: false,
+            error: httpError.message || 'Error al enviar receta'
+          };
+        }
+      }
+      
       return {
         success: false,
         error: error.message || 'Error al enviar receta'
       };
+    }
+  }
+
+  /**
+   * Enviar receta usando HTTP como fallback
+   */
+  async sendPrescriptionViaHTTP(phoneNumber, prescriptionData, prescriptionImageData, qrImageData) {
+    try {
+      // Convertir imágenes a base64 para enviar por HTTP
+      let prescriptionBase64 = null;
+      if (prescriptionImageData) {
+        if (Buffer.isBuffer(prescriptionImageData)) {
+          prescriptionBase64 = prescriptionImageData.toString('base64');
+        } else if (typeof prescriptionImageData === 'string') {
+          if (prescriptionImageData.startsWith('data:image')) {
+            prescriptionBase64 = prescriptionImageData.split(',')[1] || prescriptionImageData;
+          } else {
+            prescriptionBase64 = prescriptionImageData;
+          }
+        }
+      }
+
+      let qrBase64 = null;
+      if (qrImageData) {
+        if (Buffer.isBuffer(qrImageData)) {
+          qrBase64 = qrImageData.toString('base64');
+        } else if (typeof qrImageData === 'string') {
+          if (qrImageData.startsWith('data:image')) {
+            qrBase64 = qrImageData.split(',')[1] || qrImageData;
+          } else {
+            qrBase64 = qrImageData;
+          }
+        }
+      }
+
+      // Enviar mensaje inicial simple para "romper el hielo" y evitar bloqueos
+      // Usar un mensaje más natural y menos robótico
+      try {
+        console.log(`📤 [0/4] Enviando mensaje inicial vía HTTP...`);
+        const initialMessage = `Hola! Te envío tu receta médica ahora.`;
+        await makeHttpRequest(`${MEDICHAT_URL}/test-send-message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: { phoneNumber: phoneNumber, message: initialMessage }
+        });
+        console.log('✅ [0/4] Mensaje inicial enviado correctamente vía HTTP');
+        
+        // Esperar MUCHO más tiempo antes de enviar imágenes (15-25 segundos)
+        // Esto hace que parezca más humano y menos automático
+        const initialDelay = 15000 + Math.random() * 10000; // 15-25 segundos
+        console.log(`⏳ Esperando ${Math.round(initialDelay/1000)}s antes de enviar imágenes (simulando comportamiento humano)...`);
+        await new Promise(resolve => setTimeout(resolve, initialDelay));
+      } catch (initialError) {
+        console.warn('⚠️ [0/4] No se pudo enviar mensaje inicial vía HTTP:', initialError.message);
+        // Continuar de todas formas
+      }
+
+      // Enviar imagen de receta primero
+      if (prescriptionBase64) {
+        try {
+          const imageSizeMB = Buffer.from(prescriptionBase64, 'base64').length / (1024 * 1024);
+          console.log(`📤 [1/3] Enviando imagen de receta detallada vía HTTP (${imageSizeMB.toFixed(2)}MB)...`);
+          
+          const caption = `📋 Receta Médica\nCódigo: ${prescriptionData.prescription_code || 'N/A'}`;
+          const response = await makeHttpRequest(`${MEDICHAT_URL}/send-image`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: {
+              phoneNumber: phoneNumber,
+              imageBase64: prescriptionBase64,
+              filename: `Receta_${prescriptionData.prescription_code || 'receta'}.png`,
+              caption: caption
+            }
+          });
+
+          if (!response.data?.success) {
+            console.error('❌ [1/3] No se pudo enviar imagen de receta detallada:', response.data?.error);
+            // Enviar como texto si falla la imagen
+            try {
+              const textMessage = this.formatPrescriptionMessage(prescriptionData);
+              await makeHttpRequest(`${MEDICHAT_URL}/test-send-message`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: { phoneNumber: phoneNumber, message: textMessage }
+              });
+            } catch (textError) {
+              console.error('❌ Error al enviar receta como texto:', textError.message);
+            }
+          } else {
+            console.log('✅ [1/4] Imagen de receta detallada enviada correctamente');
+            // Esperar MUCHO más tiempo entre imágenes (20-30 segundos)
+            // Esto simula el comportamiento humano de esperar antes de enviar otra imagen
+            const delay = 20000 + Math.random() * 10000; // 20-30 segundos
+            console.log(`⏳ Esperando ${Math.round(delay/1000)}s antes de enviar QR (simulando comportamiento humano)...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        } catch (prescriptionError) {
+          console.error('❌ [1/3] Error al enviar imagen de receta:', prescriptionError.message);
+          // Enviar como texto si falla la imagen
+          try {
+            const textMessage = this.formatPrescriptionMessage(prescriptionData);
+            await makeHttpRequest(`${MEDICHAT_URL}/test-send-message`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: { phoneNumber: phoneNumber, message: textMessage }
+            });
+          } catch (textError) {
+            console.error('❌ Error al enviar receta como texto:', textError.message);
+          }
+        }
+      } else {
+        console.warn('⚠️ No hay imagen de receta para enviar, enviando solo como texto');
+        // Enviar como texto si no hay imagen
+        try {
+          const textMessage = this.formatPrescriptionMessage(prescriptionData);
+          await makeHttpRequest(`${MEDICHAT_URL}/test-send-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: { phoneNumber: phoneNumber, message: textMessage }
+          });
+        } catch (textError) {
+          console.error('❌ Error al enviar receta como texto:', textError.message);
+        }
+      }
+
+      // Enviar QR como segunda imagen
+      if (qrBase64) {
+        try {
+          const imageSizeMB = Buffer.from(qrBase64, 'base64').length / (1024 * 1024);
+          console.log(`📤 [2/3] Enviando código QR vía HTTP (${imageSizeMB.toFixed(2)}MB)...`);
+          
+          const response = await makeHttpRequest(`${MEDICHAT_URL}/send-image`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: {
+              phoneNumber: phoneNumber,
+              imageBase64: qrBase64,
+              filename: `QR_${prescriptionData.prescription_code || 'receta'}.png`,
+              caption: '📱 Código QR de la receta'
+            }
+          });
+
+          if (!response.data?.success) {
+            console.error('❌ [2/3] No se pudo enviar código QR:', response.data?.error);
+          } else {
+            console.log('✅ [2/3] Código QR enviado correctamente');
+            // Esperar 1 segundo antes de enviar el mensaje de texto
+            // Delay más largo entre mensajes para evitar bloqueos de WhatsApp
+            // Agregar variabilidad aleatoria entre 5-8 segundos
+            const delay = 5000 + Math.random() * 3000;
+            console.log(`⏳ Esperando ${Math.round(delay/1000)}s antes del próximo mensaje (anti-spam)...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        } catch (qrError) {
+          console.error('❌ [2/3] Error al enviar código QR:', qrError.message);
+        }
+      } else {
+        console.warn('⚠️ No hay código QR para enviar');
+      }
+
+      // Mensaje de resumen eliminado - las imágenes son autoexplicativas
+
+      return {
+        success: true,
+        message: 'Receta enviada correctamente a WhatsApp'
+      };
+    } catch (error) {
+      console.error('❌ Error al enviar receta vía HTTP:', error.message);
+      
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('timeout')) {
+        return {
+          success: false,
+          error: 'No se pudo conectar con medichat. Verifica que esté corriendo en ' + MEDICHAT_URL
+        };
+      }
+      
+      return {
+        success: false,
+        error: error.message || 'Error al enviar receta'
+      };
+    }
+  }
+
+  /**
+   * Enviar receta como mensaje de texto detallado (fallback si falla la imagen)
+   * @param {string} phoneNumber - Número de teléfono
+   * @param {Object} prescriptionData - Datos de la receta
+   * @param {Object} whatsappHandler - Handler de WhatsApp
+   */
+  async sendPrescriptionAsText(phoneNumber, prescriptionData, whatsappHandler) {
+    try {
+      const message = this.formatPrescriptionMessage(prescriptionData);
+      console.log('📤 Enviando receta como mensaje de texto detallado...');
+      await whatsappHandler.sendMessage(phoneNumber, message);
+      console.log('✅ Receta enviada como texto correctamente');
+    } catch (error) {
+      console.error('❌ Error al enviar receta como texto:', error.message);
+      throw error;
     }
   }
 

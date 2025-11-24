@@ -21,13 +21,196 @@ async function initializeScheduledReports() {
     
     console.log('✓ Reportes programados inicializados');
   } catch (error) {
-    // Si la tabla no existe, solo mostrar advertencia pero no fallar
+    // Si la tabla no existe, intentar crearla automáticamente
     if (error.code === 'ER_NO_SUCH_TABLE' || error.message.includes("doesn't exist")) {
-      console.log('⚠️  Tabla scheduled_reports no existe. Los reportes programados estarán deshabilitados.');
-      console.log('💡 Ejecuta: node crear_scheduled_reports.js para crear las tablas necesarias');
+      console.log('📋 Creando tabla scheduled_reports...');
+      try {
+        await createScheduledReportsTable();
+        
+        // Verificar que la tabla se creó antes de intentar usarla
+        const [tables] = await db.pool.execute(`
+          SELECT TABLE_NAME 
+          FROM information_schema.TABLES 
+          WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = 'scheduled_reports'
+        `);
+        
+        if (tables.length === 0) {
+          throw new Error('La tabla scheduled_reports no se creó correctamente');
+        }
+        
+        console.log('✓ Tabla scheduled_reports creada correctamente');
+        
+        // Esperar un momento para asegurar que la tabla esté completamente creada
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Reintentar inicializar después de crear la tabla
+        const reports = await db.getAllScheduledReports();
+        const activeReports = reports.filter(r => r.is_active);
+        activeReports.forEach(report => {
+          scheduleReport(report);
+        });
+        console.log('✓ Reportes programados inicializados');
+      } catch (createError) {
+        console.error('❌ Error al crear tabla scheduled_reports:', createError.message);
+        if (createError.code) {
+          console.error('Código de error:', createError.code);
+        }
+        if (createError.stack) {
+          console.error('Stack trace:', createError.stack);
+        }
+        console.log('⚠️  Los reportes programados estarán deshabilitados.');
+        console.log('💡 Intenta ejecutar manualmente: node backend/crear_scheduled_reports.js');
+      }
     } else {
       console.error('Error al inicializar reportes programados:', error);
     }
+  }
+}
+
+/**
+ * Crear la tabla scheduled_reports si no existe
+ */
+async function createScheduledReportsTable() {
+  const fs = require('fs').promises;
+  const path = require('path');
+  
+  try {
+    // Intentar leer el archivo SQL primero
+    const sqlPath = path.join(__dirname, '../../database/create_scheduled_reports.sql');
+    let sql;
+    try {
+      sql = await fs.readFile(sqlPath, 'utf8');
+    } catch (fileError) {
+      // Si no existe el archivo, crear las tablas manualmente
+      sql = null;
+    }
+    
+    if (sql) {
+      // Dividir en statements y ejecutar
+      const statements = sql.split(';').filter(s => {
+        const trimmed = s.trim();
+        return trimmed.length > 0 && !trimmed.startsWith('--') && !trimmed.startsWith('/*');
+      });
+      
+      for (const statement of statements) {
+        const trimmed = statement.trim();
+        if (trimmed) {
+          try {
+            await db.pool.execute(trimmed);
+          } catch (error) {
+            // Ignorar si la tabla ya existe
+            if (error.code !== 'ER_TABLE_EXISTS_ERROR' && !error.message.includes('already exists')) {
+              console.error('Error ejecutando statement:', trimmed.substring(0, 50), '...', error.message);
+              throw error;
+            }
+          }
+        }
+      }
+    } else {
+      // Crear las tablas manualmente si no hay archivo SQL
+      await createTablesManually();
+    }
+    
+    // Verificar que las tablas se crearon correctamente
+    await verifyTablesExist();
+    
+  } catch (error) {
+    // Si falla, intentar crear manualmente
+    if (error.code !== 'ER_TABLE_EXISTS_ERROR' && !error.message.includes('already exists')) {
+      try {
+        await createTablesManually();
+        await verifyTablesExist();
+      } catch (manualError) {
+        throw manualError;
+      }
+    }
+  }
+}
+
+/**
+ * Crear las tablas manualmente
+ */
+async function createTablesManually() {
+  // Verificar si la tabla users existe antes de crear la foreign key
+  const [usersTable] = await db.pool.execute(`
+    SELECT TABLE_NAME 
+    FROM information_schema.TABLES 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'users'
+  `);
+  
+  const hasUsersTable = usersTable.length > 0;
+  
+  // Crear tabla scheduled_reports primero
+  let createReportsSQL = `
+    CREATE TABLE IF NOT EXISTS scheduled_reports (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      report_name VARCHAR(255) NOT NULL,
+      report_type ENUM('expired', 'expiring', 'low_stock', 'traceability', 'consumption_by_area', 'predictions', 'custom') NOT NULL,
+      schedule_type ENUM('daily', 'weekly', 'monthly', 'custom') NOT NULL,
+      schedule_config JSON COMMENT 'Configuración del cron (día, hora, etc.)',
+      recipients TEXT COMMENT 'Emails separados por coma',
+      format ENUM('csv', 'excel', 'pdf', 'json') DEFAULT 'pdf',
+      filters JSON COMMENT 'Filtros del reporte (fechas, productos, áreas, etc.)',
+      is_active BOOLEAN DEFAULT TRUE,
+      last_run_at TIMESTAMP NULL COMMENT 'Última vez que se ejecutó',
+      next_run_at TIMESTAMP NULL COMMENT 'Próxima ejecución programada',
+      created_by INT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`;
+  
+  // Solo agregar foreign key si la tabla users existe
+  if (hasUsersTable) {
+    createReportsSQL += `,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL`;
+  }
+  
+  createReportsSQL += `,
+      INDEX idx_is_active (is_active),
+      INDEX idx_next_run_at (next_run_at),
+      INDEX idx_report_type (report_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `;
+  
+  await db.pool.execute(createReportsSQL);
+  
+  // Crear tabla scheduled_report_executions después
+  await db.pool.execute(`
+    CREATE TABLE IF NOT EXISTS scheduled_report_executions (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      scheduled_report_id INT NOT NULL,
+      execution_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      status ENUM('success', 'failed', 'pending') DEFAULT 'pending',
+      records_generated INT DEFAULT 0,
+      file_path VARCHAR(500) COMMENT 'Ruta del archivo generado',
+      error_message TEXT,
+      execution_time_ms INT COMMENT 'Tiempo de ejecución en milisegundos',
+      FOREIGN KEY (scheduled_report_id) REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+      INDEX idx_scheduled_report_id (scheduled_report_id),
+      INDEX idx_execution_date (execution_date),
+      INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+/**
+ * Verificar que las tablas existen
+ */
+async function verifyTablesExist() {
+  try {
+    const [tables] = await db.pool.execute(`
+      SELECT TABLE_NAME 
+      FROM information_schema.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME IN ('scheduled_reports', 'scheduled_report_executions')
+    `);
+    
+    if (tables.length < 2) {
+      throw new Error(`No se pudieron crear todas las tablas. Tablas encontradas: ${tables.length}`);
+    }
+  } catch (error) {
+    throw new Error(`Error verificando tablas: ${error.message}`);
   }
 }
 

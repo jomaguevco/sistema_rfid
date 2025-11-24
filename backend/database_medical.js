@@ -2918,9 +2918,22 @@ async function getPrescriptionItems(prescriptionId) {
       return [];
     }
     
-    // Si hay items, intentar obtener información de lotes para cada producto (opcional)
+    // Si hay items, obtener información de stock y lotes para cada producto
     for (let i = 0; i < rows.length; i++) {
       try {
+        // Calcular stock disponible total del producto
+        const [stockRows] = await pool.execute(
+          `SELECT COALESCE(SUM(quantity), 0) as total_stock
+           FROM product_batches 
+           WHERE product_id = ? AND quantity > 0`,
+          [rows[i].product_id]
+        );
+        
+        const stockAvailable = parseInt(stockRows[0]?.total_stock || 0);
+        rows[i].stock_available = stockAvailable;
+        rows[i].is_out_of_stock = stockAvailable === 0;
+        
+        // Obtener información del lote más antiguo disponible (FIFO)
         const [batchRows] = await pool.execute(
           `SELECT lot_number, expiry_date, quantity
            FROM product_batches 
@@ -2936,7 +2949,10 @@ async function getPrescriptionItems(prescriptionId) {
         }
       } catch (batchError) {
         // No es crítico si no se puede obtener información del lote
-        console.warn(`⚠️ No se pudo obtener lote para producto ${rows[i].product_id}:`, batchError.message);
+        console.warn(`⚠️ No se pudo obtener información de stock para producto ${rows[i].product_id}:`, batchError.message);
+        // Establecer valores por defecto
+        rows[i].stock_available = 0;
+        rows[i].is_out_of_stock = true;
       }
     }
     

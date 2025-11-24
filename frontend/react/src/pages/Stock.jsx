@@ -43,8 +43,8 @@ export default function Stock() {
     product_type: ''
   })
 
-  // Verificar que solo admin y químicos puedan acceder
-  if (!hasAnyRole(['admin', 'farmaceutico'])) {
+  // Verificar que solo admin pueda acceder
+  if (!hasRole('admin')) {
     return null // ProtectedRoute manejará la redirección
   }
 

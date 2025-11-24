@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRFID } from '../../hooks/useRFID'
+import { useAuth } from '../../context/AuthContext'
 import api from '../../services/api'
 import Modal from '../common/Modal'
 import Input from '../common/Input'
@@ -8,11 +9,12 @@ import Button from '../common/Button'
 import Badge from '../common/Badge'
 import Loading from '../common/Loading'
 import { normalizeRfidCode } from '../../utils/formatting'
-import { HiWifi, HiStop, HiCheckCircle } from 'react-icons/hi'
+import { HiWifi, HiStop, HiCheckCircle, HiExclamationCircle } from 'react-icons/hi'
 import './DispenseModal.css'
 
 export default function QRDispenseModal({ prescription, isOpen, onClose, onSuccess }) {
   const queryClient = useQueryClient()
+  const { canViewStock } = useAuth()
   const [selectedItem, setSelectedItem] = useState(null)
   const [quantity, setQuantity] = useState(1)
   const [batch, setBatch] = useState(null)
@@ -162,8 +164,18 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
       return
     }
 
+    // Verificar si el medicamento está agotado
+    if (batch.quantity === 0 || selectedItem.is_out_of_stock) {
+      setError('Este medicamento está agotado. No se puede despachar hasta que se renueve stock.')
+      return
+    }
+
     if (qtyValue > batch.quantity) {
-      setError(`Stock insuficiente. Disponible: ${batch.quantity} unidades, Intento de despachar: ${qtyValue}`)
+      if (canViewStock()) {
+        setError(`Stock insuficiente. Disponible: ${batch.quantity} unidades, Intento de despachar: ${qtyValue}`)
+      } else {
+        setError('Stock insuficiente. No se puede despachar la cantidad solicitada.')
+      }
       return
     }
 
@@ -291,15 +303,33 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
             {batch && (
               <div className="dispense-section">
                 <h4>Información del Lote</h4>
+                {(selectedItem?.is_out_of_stock || batch.quantity === 0) && (
+                  <div className="out-of-stock-warning" style={{ 
+                    padding: '12px', 
+                    marginBottom: '16px', 
+                    backgroundColor: '#fee', 
+                    border: '1px solid #fcc',
+                    borderRadius: '4px',
+                    color: '#c33',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <HiExclamationCircle />
+                    <span>Este medicamento está agotado. No se puede despachar hasta que se renueve stock.</span>
+                  </div>
+                )}
                 <div className="batch-info">
                   <div>
                     <label>Código de Identificación:</label>
                     <span>{batch.rfid_uid}</span>
                   </div>
-                  <div>
-                    <label>Stock Disponible:</label>
-                    <span>{batch.quantity}</span>
-                  </div>
+                  {canViewStock() && (
+                    <div>
+                      <label>Stock Disponible:</label>
+                      <span>{batch.quantity}</span>
+                    </div>
+                  )}
                   <div>
                     <label>Cantidad Faltante:</label>
                     <span>{remaining}</span>
@@ -310,14 +340,20 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
                   label="Cantidad a Despachar"
                   type="number"
                   min="1"
-                  max={Math.min(remaining, batch.quantity)}
+                  max={selectedItem?.is_out_of_stock || batch.quantity === 0 ? 0 : Math.min(remaining, batch.quantity)}
                   value={quantity}
                   onChange={(e) => {
                     const value = e.target.value
                     const numValue = value === '' ? '' : (parseInt(value) || 1)
                     setQuantity(numValue)
                   }}
-                  helperText={`Máximo: ${Math.min(remaining, batch.quantity)} unidades (Faltan ${remaining}, Stock disponible: ${batch.quantity})`}
+                  helperText={
+                    selectedItem?.is_out_of_stock || batch.quantity === 0
+                      ? 'Este medicamento está agotado. No se puede despachar hasta que se renueve stock.'
+                      : canViewStock() 
+                        ? `Máximo: ${Math.min(remaining, batch.quantity)} unidades (Faltan ${remaining}, Stock disponible: ${batch.quantity})`
+                        : `Máximo: ${Math.min(remaining, batch.quantity)} unidades (Faltan ${remaining})`
+                  }
                 />
 
                 <Button
@@ -326,7 +362,7 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
                   fullWidth
                   onClick={handleDispense}
                   loading={fulfillMutation.isPending}
-                  disabled={!quantity || parseInt(quantity) < 1}
+                  disabled={!quantity || parseInt(quantity) < 1 || selectedItem?.is_out_of_stock || batch.quantity === 0}
                 >
                   <HiCheckCircle />
                   Despachar {parseInt(quantity) || 0} {parseInt(quantity) === 1 ? 'unidad' : 'unidades'}

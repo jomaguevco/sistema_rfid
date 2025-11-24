@@ -120,6 +120,12 @@ export function AuthProvider({ children }) {
     return permissions[user.role]?.includes(permission) || false
   }
 
+  // Verificar si el usuario puede ver información de stock
+  const canViewStock = () => {
+    if (!user) return false
+    return user.role === 'admin'
+  }
+
   // Verificar si el usuario puede realizar una acción (create, update, delete)
   const canPerformAction = (resource, action) => {
     if (!user) return false
@@ -169,6 +175,7 @@ export function AuthProvider({ children }) {
         canAccess,
         hasPermission,
         canPerformAction,
+        canViewStock,
         isAuthenticated: !!user
       }}
     >
