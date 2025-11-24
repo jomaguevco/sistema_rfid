@@ -82,15 +82,11 @@ export default function StockEntry() {
         const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid
         setScannedRfid(normalizedRfid)
         
-        // En modo múltiple, no detener el escaneo automáticamente
-        if (!multipleMode) {
-          setListening(false)
-          stopRFID()
-          setShowBatchForm(true)
-        } else {
-          // En modo múltiple, mostrar formulario pero mantener escaneo activo
-          setShowBatchForm(true)
-        }
+        // SIEMPRE detener el escaneo después de detectar un RFID
+        // El usuario debe presionar "Iniciar Escaneo" nuevamente para continuar
+        setListening(false)
+        stopRFID()
+        setShowBatchForm(true)
       }
     }
   })
@@ -126,7 +122,7 @@ export default function StockEntry() {
     stopRFID()
   }
 
-  const handleAddBatch = () => {
+  const handleAddBatch = async () => {
     // Validar campos
     const newErrors = {}
     if (!batchData.lot_number.trim()) {
@@ -150,39 +146,109 @@ export default function StockEntry() {
     }
 
     if (multipleMode) {
-      // Validar RFID duplicado
+      // Validar RFID duplicado en la lista pendiente
       const normalizedScannedRfid = normalizeRfidCode(scannedRfid) || scannedRfid
-      const isDuplicate = pendingEntries.some(e => {
+      const isDuplicateInList = pendingEntries.some(e => {
         const normalizedEntryRfid = normalizeRfidCode(e.rfid) || e.rfid
         return normalizedEntryRfid === normalizedScannedRfid
       })
       
-      if (isDuplicate) {
-        setErrors({ rfid: 'Este IDP ya está en la lista' })
+      if (isDuplicateInList) {
+        setErrors({ rfid: 'Este IDP ya está en la lista pendiente' })
         return
       }
       
-      // Agregar a lista pendiente
-      const quantityValue = parseInt(batchData.quantity) || 1
-      const entry = {
-        id: Date.now(),
-        product: selectedProduct,
-        rfid: scannedRfid,
-        lot_number: batchData.lot_number.trim(),
-        expiry_date: batchData.expiry_date,
-        quantity: quantityValue
-      }
-      setPendingEntries([...pendingEntries, entry])
-      
-      // Mantener datos del formulario, limpiar solo RFID y errores
-      setScannedRfid(null)
+      // Validar RFID duplicado contra la base de datos ANTES de agregar
+      // Esta validación es asíncrona, así que necesitamos hacerla antes de agregar
+      setProcessing(true)
       setErrors({})
       
-      // Reiniciar escaneo automáticamente
-      setTimeout(() => {
-        setListening(true)
-        startRFID()
-      }, 300) // Pequeño delay para mejor UX
+      // Validar contra la base de datos
+      const validateRfidInDatabase = async () => {
+        try {
+          const normalizedRfid = normalizeRfidCode(scannedRfid) || scannedRfid
+          const existingBatchResponse = await api.get(`/batches?rfid_uid=${normalizedRfid}`)
+          const existingBatches = existingBatchResponse.data.data || []
+          
+          if (existingBatches.length > 0) {
+            // Verificar si alguno de los lotes tiene stock activo (quantity > 0)
+            const activeBatch = existingBatches.find(b => b.quantity > 0)
+            
+            if (activeBatch) {
+              const productName = activeBatch.product_name || 'Medicamento'
+              const expiryDate = activeBatch.expiry_date 
+                ? new Date(activeBatch.expiry_date).toLocaleDateString('es-ES')
+                : 'N/A'
+              
+              // Verificar si el RFID está asociado a un producto diferente
+              const isDifferentProduct = activeBatch.product_id !== selectedProduct.id
+              
+              if (isDifferentProduct) {
+                setErrors({
+                  rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${activeBatch.product_id}). No puedes usar el mismo IDP para otro producto. Stock actual: ${activeBatch.quantity} unidades, Lote: ${activeBatch.lot_number}, Vence: ${expiryDate}`
+                })
+                setProcessing(false)
+                return false
+              } else {
+                setErrors({
+                  rfid: `Este IDP ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${productName}", lote ${activeBatch.lot_number}, vence ${expiryDate}). Solo se puede ingresar nuevamente cuando el stock llegue a 0.`
+                })
+                setProcessing(false)
+                return false
+              }
+            }
+            
+            // Si existe pero no tiene stock activo, verificar si es de otro producto
+            const batchWithDifferentProduct = existingBatches.find(b => b.product_id !== selectedProduct.id)
+            if (batchWithDifferentProduct) {
+              const productName = batchWithDifferentProduct.product_name || 'Medicamento'
+              setErrors({
+                rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${batchWithDifferentProduct.product_id}). No puedes usar el mismo IDP para otro producto.`
+              })
+              setProcessing(false)
+              return false
+            }
+          }
+          
+          // Si pasa todas las validaciones, agregar a lista pendiente
+          const quantityValue = parseInt(batchData.quantity) || 1
+          const entry = {
+            id: Date.now(),
+            product: selectedProduct,
+            rfid: scannedRfid,
+            lot_number: batchData.lot_number.trim(),
+            expiry_date: batchData.expiry_date,
+            quantity: quantityValue
+          }
+          setPendingEntries([...pendingEntries, entry])
+          
+          // Mantener datos del formulario, limpiar solo RFID y errores
+          setScannedRfid(null)
+          setErrors({})
+          setProcessing(false)
+          
+          // NO reactivar escaneo automáticamente - el usuario debe presionar el botón
+          return true
+        } catch (checkError) {
+          // Si hay error al verificar, mostrar error pero permitir continuar con advertencia
+          if (checkError.response?.status === 400) {
+            const errorMessage = checkError.response?.data?.error || 'Error al verificar RFID'
+            setErrors({ rfid: errorMessage })
+            setProcessing(false)
+            return false
+          }
+          // Si es otro tipo de error, mostrar advertencia pero permitir agregar
+          console.warn('Error al verificar RFID existente:', checkError)
+          setErrors({ 
+            rfid: '⚠️ No se pudo verificar si el RFID ya existe. Verifica manualmente antes de confirmar.' 
+          })
+          setProcessing(false)
+          return false
+        }
+      }
+      
+      // Ejecutar validación asíncrona
+      await validateRfidInDatabase()
     } else {
       // Procesar inmediatamente
       const quantityValue = parseInt(batchData.quantity) || 1
@@ -269,8 +335,8 @@ export default function StockEntry() {
         message: successMessage
       })
 
-      // Detener escaneo si está activo (solo en modo no múltiple)
-      if (!multipleMode && listening) {
+      // Detener escaneo si está activo (siempre)
+      if (listening) {
         setListening(false)
         stopRFID()
       }

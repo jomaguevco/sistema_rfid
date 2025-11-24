@@ -42,9 +42,17 @@ router.post('/', authenticateToken, async (req, res) => {
     // Obtener información del paciente si está registrado
     let finalPatientName = patient_name || '';
     let finalPatientIdNumber = patient_id_number || null;
-    let finalPatientId = patient_id ? parseInt(patient_id) : null;
+    let finalPatientId = null;
     
-    if (finalPatientId && !isNaN(finalPatientId)) {
+    // Validar y parsear patient_id de forma segura
+    if (patient_id) {
+      const parsedId = parseInt(patient_id, 10);
+      if (!isNaN(parsedId) && parsedId > 0) {
+        finalPatientId = parsedId;
+      }
+    }
+    
+    if (finalPatientId) {
       try {
         const patient = await db.getPatientById(finalPatientId);
         if (patient) {
@@ -60,9 +68,17 @@ router.post('/', authenticateToken, async (req, res) => {
     // Obtener información del doctor si está registrado
     let finalDoctorName = doctor_name || '';
     let finalDoctorLicense = doctor_license || null;
-    let finalDoctorId = doctor_id ? parseInt(doctor_id) : null;
+    let finalDoctorId = null;
     
-    if (finalDoctorId && !isNaN(finalDoctorId)) {
+    // Validar y parsear doctor_id de forma segura
+    if (doctor_id) {
+      const parsedId = parseInt(doctor_id, 10);
+      if (!isNaN(parsedId) && parsedId > 0) {
+        finalDoctorId = parsedId;
+      }
+    }
+    
+    if (finalDoctorId) {
       try {
         const doctor = await db.getDoctorById(finalDoctorId);
         if (doctor) {
@@ -405,10 +421,10 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { prescription_item_id, batch_id, quantity } = req.body;
 
-    // Validar tipos y valores
-    const prescriptionItemId = parseInt(prescription_item_id);
-    const batchId = parseInt(batch_id);
-    const quantityValue = parseInt(quantity);
+    // Validar tipos y valores de forma segura
+    const prescriptionItemId = parseInt(prescription_item_id, 10);
+    const batchId = parseInt(batch_id, 10);
+    const quantityValue = parseInt(quantity, 10);
 
     if (!prescription_item_id || !batch_id || !quantity) {
       return res.status(400).json({
@@ -417,7 +433,10 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
-    if (isNaN(prescriptionItemId) || isNaN(batchId) || isNaN(quantityValue)) {
+    // Validar que todos los valores sean números válidos y positivos
+    if (isNaN(prescriptionItemId) || prescriptionItemId <= 0 ||
+        isNaN(batchId) || batchId <= 0 ||
+        isNaN(quantityValue) || quantityValue <= 0) {
       return res.status(400).json({
         success: false,
         error: 'Los campos prescription_item_id, batch_id y quantity deben ser números válidos'

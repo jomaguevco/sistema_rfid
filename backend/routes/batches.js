@@ -159,7 +159,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Validar quantity antes de crear batch
-    const quantityValue = parseInt(quantity);
+    const quantityValue = parseInt(quantity, 10);
     if (!quantity || isNaN(quantityValue) || quantityValue <= 0) {
       return res.status(400).json({
         success: false,

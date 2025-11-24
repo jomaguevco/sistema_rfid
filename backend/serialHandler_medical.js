@@ -10,6 +10,8 @@ const BAUD_RATE = parseInt(process.env.BAUD_RATE || '115200'); // Cambiado a 115
 let serialPort = null;
 let parser = null;
 let pendingRfidUid = null; // Para almacenar RFID mientras se espera selección de área
+let messageBuffer = ''; // Buffer compartido para evitar problemas en reconexión
+let isInitializing = false; // Flag para evitar múltiples inicializaciones simultáneas
 
 /**
  * Función para procesar mensajes RFID (definida fuera para reutilización)
@@ -118,6 +120,29 @@ async function detectSerialPort() {
  * Inicializar comunicación serial con Arduino
  */
 async function initSerial() {
+  // Evitar múltiples inicializaciones simultáneas
+  if (isInitializing) {
+    console.log('⚠️  Inicialización ya en progreso, ignorando llamada duplicada');
+    return;
+  }
+  
+  // Si ya hay un puerto abierto, cerrarlo primero
+  if (serialPort && serialPort.isOpen) {
+    console.log('⚠️  Cerrando puerto existente antes de reinicializar...');
+    try {
+      await new Promise((resolve) => {
+        serialPort.close((err) => {
+          if (err) console.error('Error al cerrar puerto:', err.message);
+          resolve();
+        });
+      });
+    } catch (closeErr) {
+      console.error('Error al cerrar puerto:', closeErr.message);
+    }
+  }
+  
+  isInitializing = true;
+  
   try {
     // Detectar puerto automáticamente
     const detectedPort = await detectSerialPort();
@@ -129,14 +154,14 @@ async function initSerial() {
     console.log(`   Puerto a usar: ${portToUse}`);
     console.log(`   Velocidad: ${BAUD_RATE} baud`);
     
+    // Limpiar buffer al reinicializar
+    messageBuffer = '';
+    
     serialPort = new SerialPort({
       path: portToUse,
       baudRate: BAUD_RATE,
       autoOpen: false
     });
-
-    // Buffer para acumular mensajes fragmentados
-    let messageBuffer = '';
     
     // IMPORTANTE: NO usar pipe() si queremos escuchar datos RAW directamente
     // El pipe() consume los datos antes de que lleguen al listener on('data')
@@ -145,6 +170,10 @@ async function initSerial() {
     // Escuchar datos RAW para capturar TODO lo que llega
     serialPort.on('data', (rawData) => {
       const dataStr = rawData.toString();
+      
+      // IMPORTANTE: Mostrar TODOS los datos recibidos para debugging
+      // Esto ayuda a identificar si el problema es de recepción o procesamiento
+      console.log('📦 [RAW DATA RECIBIDO]', rawData.length, 'bytes:', JSON.stringify(dataStr.substring(0, 200)));
       
       // Solo mostrar datos RAW si contienen un JSON potencial (para debugging)
       const hasJsonPotential = dataStr.includes('{"action"') || dataStr.includes('"uid"');
@@ -270,16 +299,21 @@ async function initSerial() {
       // Detectar heartbeat del Arduino para mantener conexión activa
       const trimmedMessage = dataStr.trim();
       if (trimmedMessage && !trimmedMessage.startsWith('{')) {
-        // Detectar heartbeat (sistema activo)
+        // Detectar heartbeat (sistema activo) - MOSTRAR para confirmar recepción
         if (trimmedMessage.includes('💓 Sistema activo') || trimmedMessage.includes('Sistema activo')) {
-          // Heartbeat recibido - conexión activa (no loguear para reducir ruido)
-          // Esto confirma que el Arduino está enviando datos
+          console.log('💓 [Arduino Heartbeat] Sistema activo - Conexión OK');
         }
-        // Solo mostrar errores y confirmaciones importantes
+        // Mostrar todos los mensajes importantes del Arduino
         else if (trimmedMessage.startsWith('✅ Tag detectado') || 
                  trimmedMessage.includes('Error al leer UID') ||
-                 trimmedMessage.startsWith('❌')) {
+                 trimmedMessage.startsWith('❌') ||
+                 trimmedMessage.includes('Tag detectado') ||
+                 trimmedMessage.includes('Esperando tags')) {
           console.log('📟 [Arduino]', trimmedMessage);
+        }
+        // Mostrar otros mensajes del Arduino para debugging
+        else if (trimmedMessage.length > 0 && trimmedMessage.length < 200) {
+          console.log('📟 [Arduino Debug]', trimmedMessage);
         }
       }
       
@@ -306,6 +340,11 @@ async function initSerial() {
     // Procesaremos todo manualmente en el listener RAW
     parser = null;
 
+    // IMPORTANTE: Configurar listeners ANTES de abrir el puerto
+    // Asegurar que el listener de datos esté completamente configurado
+    console.log('🔧 Configurando listeners ANTES de abrir puerto...');
+    console.log('   - Listener de datos configurado:', serialPort.listenerCount('data') > 0 ? '✓' : '✗');
+    
     serialPort.open((err) => {
       if (err) {
         console.error('\n❌ Error al abrir puerto serial:', err.message);
@@ -327,6 +366,7 @@ async function initSerial() {
             });
           }
         });
+        isInitializing = false;
         return;
       }
       console.log(`\n✅ Puerto serial abierto correctamente:`);
@@ -334,16 +374,29 @@ async function initSerial() {
       console.log(`   Velocidad: ${BAUD_RATE} baud`);
       console.log(`   Estado: ${serialPort.isOpen ? 'ABIERTO ✓' : 'CERRADO ✗'}`);
       console.log(`\n📡 Esperando datos del ESP32/Arduino...\n`);
+      console.log('🔍 IMPORTANTE: Si NO ves mensajes "📦 [RAW DATA RECIBIDO]" arriba,');
+      console.log('   significa que NO se están recibiendo datos del Arduino.');
+      console.log('   Verifica que el Arduino esté enviando datos por Serial.\n');
       
       // Verificar que los listeners estén activos INMEDIATAMENTE después de abrir
       console.log('🔍 Verificación INMEDIATA de listeners:');
-      console.log('   - serialPort.on("data"):', serialPort.listenerCount('data') > 0 ? '✓ Activo (' + serialPort.listenerCount('data') + ' listeners)' : '✗ No activo');
-      console.log('   - serialPort.on("error"):', serialPort.listenerCount('error') > 0 ? '✓ Activo' : '✗ No activo');
-      console.log('   - serialPort.on("close"):', serialPort.listenerCount('close') > 0 ? '✓ Activo' : '✗ No activo');
+      const dataListeners = serialPort.listenerCount('data');
+      const errorListeners = serialPort.listenerCount('error');
+      const closeListeners = serialPort.listenerCount('close');
+      
+      console.log('   - serialPort.on("data"):', dataListeners > 0 ? `✓ Activo (${dataListeners} listeners)` : '✗ No activo');
+      console.log('   - serialPort.on("error"):', errorListeners > 0 ? `✓ Activo (${errorListeners} listeners)` : '✗ No activo');
+      console.log('   - serialPort.on("close"):', closeListeners > 0 ? `✓ Activo (${closeListeners} listeners)` : '✗ No activo');
       console.log('   - Puerto abierto:', serialPort.isOpen ? '✓ Sí' : '✗ No');
       console.log('   - Puerto usado:', portToUse);
       console.log('   - Puerto configurado (.env):', SERIAL_PORT);
       console.log('   - Baud rate:', BAUD_RATE);
+      
+      // ADVERTENCIA si no hay listeners de datos
+      if (dataListeners === 0) {
+        console.error('   ❌ ERROR CRÍTICO: No hay listeners de datos configurados!');
+        console.error('   El puerto está abierto pero NO recibirá datos.');
+      }
       
       // Enviar un comando de prueba al Arduino para verificar comunicación bidireccional
       setTimeout(() => {
@@ -415,8 +468,11 @@ async function initSerial() {
       }
     }, 60000); // Cada minuto
 
+    isInitializing = false;
   } catch (error) {
     console.error('✗ Error al inicializar comunicación serial:', error.message);
+    console.error('Stack:', error.stack);
+    isInitializing = false;
   }
 }
 
@@ -579,9 +635,10 @@ async function reconnectSerial() {
       });
     }
     
-    // Limpiar referencias
+    // Limpiar referencias y buffer
     serialPort = null;
     parser = null;
+    messageBuffer = ''; // Limpiar buffer al reconectar
     
     // Esperar más tiempo para que el puerto esté disponible (5 segundos)
     console.log('   Esperando 5 segundos para que el puerto esté disponible...');

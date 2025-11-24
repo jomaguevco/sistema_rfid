@@ -101,19 +101,14 @@ void setup() {
   
   delay(200);
   
-  // Aumentar ganancia de la antena para mejor detección (máxima sensibilidad)
+  // Configurar ganancia de la antena para mejor detección
   mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
   
   // Activar la antena
   mfrc522.PCD_AntennaOn();
   
-  // Configurar para máxima sensibilidad
-  // Aumentar el tiempo de búsqueda de tarjetas
-  mfrc522.PCD_WriteRegister(mfrc522.RFCfgReg, 0x70);  // Ganancia máxima (48dB)
-  
-  // Configurar para detección continua
-  mfrc522.PCD_WriteRegister(mfrc522.TxSelReg, 0x83);  // Fuerza 100% ASK
-  mfrc522.PCD_WriteRegister(mfrc522.RxSelReg, 0x80);  // Sin filtro
+  // Usar configuración estándar del módulo (más confiable)
+  // Las configuraciones personalizadas pueden causar problemas de detección
   
   Serial.println("✓ MFRC522 inicializado");
   Serial.println("✓ Antena activada con ganancia máxima\n");
@@ -124,24 +119,6 @@ void setup() {
   Serial.print("Versión del chip: 0x");
   if (version < 0x10) Serial.print("0");
   Serial.println(version, HEX);
-  
-  // Diagnóstico adicional
-  Serial.println("\n📊 Diagnóstico de registros:");
-  byte commandReg = mfrc522.PCD_ReadRegister(mfrc522.CommandReg);
-  Serial.print("  CommandReg: 0x");
-  if (commandReg < 0x10) Serial.print("0");
-  Serial.println(commandReg, HEX);
-  
-  byte comIrqReg = mfrc522.PCD_ReadRegister(mfrc522.ComIrqReg);
-  Serial.print("  ComIrqReg: 0x");
-  if (comIrqReg < 0x10) Serial.print("0");
-  Serial.println(comIrqReg, HEX);
-  
-  byte divIrqReg = mfrc522.PCD_ReadRegister(mfrc522.DivIrqReg);
-  Serial.print("  DivIrqReg: 0x");
-  if (divIrqReg < 0x10) Serial.print("0");
-  Serial.println(divIrqReg, HEX);
-  Serial.println();
   
   // Versiones válidas conocidas: 0x91, 0x92, 0x88, 0x90, 0xB2
   if (version == 0x00 || version == 0xFF) {
@@ -155,28 +132,11 @@ void setup() {
     Serial.println("  RC522 GND  → ESP32 GND");
     Serial.println("  RC522 3.3V → ESP32 3V3 (NO 5V)");
   } else {
-    // Versión detectada correctamente - el módulo está funcionando
     Serial.print("✓ Versión detectada: 0x");
     if (version < 0x10) Serial.print("0");
     Serial.println(version, HEX);
     Serial.println("  (Versión válida - módulo funcionando)");
-    
-    // Intentar autotest, pero no es crítico si falla
-    Serial.println("\nRealizando autotest...");
-    bool autotestPassed = mfrc522.PCD_PerformSelfTest();
-    
-    if (autotestPassed) {
       Serial.println("{\"status\":\"Sistema RFID iniciado correctamente\"}");
-      Serial.println("✓ RC522 detectado y funcionando");
-      Serial.println("✓ Autotest completado exitosamente");
-    } else {
-      // El autotest falló pero la versión se detecta, el módulo puede funcionar igual
-      Serial.println("{\"status\":\"Sistema RFID iniciado - Autotest falló pero módulo detectado\"}");
-      Serial.println("✓ RC522 detectado (versión válida)");
-      Serial.println("⚠ Autotest falló, pero el módulo puede funcionar correctamente");
-      Serial.println("  (Algunos módulos RC522 no pasan el autotest pero funcionan bien)");
-    }
-    
     Serial.println("✓ Esperando tags RFID...\n");
   }
   
@@ -184,84 +144,39 @@ void setup() {
 }
 
 void loop() {
-  // Reset del módulo si no hay comunicación (cada 10 segundos)
-  static unsigned long lastReset = 0;
-  static unsigned long lastHeartbeat = 0;
-  static unsigned long lastDiagnostic = 0;
-  
   // Heartbeat cada 10 segundos
+  static unsigned long lastHeartbeat = 0;
   if (millis() - lastHeartbeat > 10000) {
     Serial.println("💓 Sistema activo, escuchando tags...");
     lastHeartbeat = millis();
   }
   
-  // Diagnóstico cada 30 segundos
-  if (millis() - lastDiagnostic > 30000) {
-    Serial.println("\n📊 Diagnóstico del módulo:");
+  // Verificar módulo periódicamente (cada 60 segundos para no interferir)
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck > 60000) {
     byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-    Serial.print("  Versión: 0x");
-    if (version < 0x10) Serial.print("0");
-    Serial.println(version, HEX);
-    
-    // Verificar ganancia de antena
-    byte gain = mfrc522.PCD_ReadRegister(mfrc522.RFCfgReg);
-    Serial.print("  Ganancia antena: 0x");
-    if (gain < 0x10) Serial.print("0");
-    Serial.println(gain, HEX);
-    
-    // Verificar que la antena esté activa
-    byte txControl = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
-    Serial.print("  Control TX: 0x");
-    if (txControl < 0x10) Serial.print("0");
-    Serial.println(txControl, HEX);
-    Serial.println();
-    
-    lastDiagnostic = millis();
-  }
-  
-  if (millis() - lastReset > 30000) {  // Verificar cada 30 segundos (menos frecuente)
-    // Verificar que el módulo responda con múltiples intentos
-    bool needsReset = true;
-    for (int i = 0; i < 3; i++) {  // 3 intentos antes de reinicializar
-      byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-      if (version != 0x00 && version != 0xFF) {
-        needsReset = false;
-        break;  // Versión válida, no necesita reinicio
-      }
-      delay(50);  // Pequeño delay entre intentos
-    }
-    
-    if (needsReset) {
-      Serial.println("⚠ Reinicializando RC522 (módulo no responde)...");
+    if (version == 0x00 || version == 0xFF) {
+      Serial.println("⚠️ Reinicializando RC522...");
       mfrc522.PCD_Init();
-      delay(100);
+      delay(50);
       mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
       mfrc522.PCD_AntennaOn();
-      delay(200);
-      
-      // Verificar que la reinicialización funcionó
-      byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-      if (version != 0x00 && version != 0xFF) {
-        Serial.print("✓ RC522 reinicializado correctamente (versión: 0x");
-        if (version < 0x10) Serial.print("0");
-        Serial.print(version, HEX);
-        Serial.println(")");
-      } else {
-        Serial.println("❌ Error: RC522 no responde después de reinicialización");
-      }
     }
-    lastReset = millis();
+    lastCheck = millis();
   }
   
-  // MÉTODO 1: PICC_IsNewCardPresent (método estándar) - más sensible
-  // Sin delay para máxima velocidad de detección
-  bool cardPresent = mfrc522.PICC_IsNewCardPresent();
+  // MÉTODO PRINCIPAL: Buscar tags activamente
+  // Usar PICC_RequestA que es el método más confiable
+  byte bufferATQA[2];
+  byte bufferSize = sizeof(bufferATQA);
   
-  if (cardPresent) {
-    Serial.println("📡 [DEBUG] Tarjeta detectada!");
-    
-    // Intentar leer inmediatamente (sin delays innecesarios)
-    if (mfrc522.PICC_ReadCardSerial()) {
+  // Buscar tag tipo A
+  MFRC522::StatusCode status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+  
+  // Si se detecta un tag
+  if (status == MFRC522::STATUS_OK) {
+    // Verificar que realmente hay un tag presente (doble verificación)
+    if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
       // Obtener el UID
       String uid = "";
       for (byte i = 0; i < mfrc522.uid.size; i++) {
@@ -278,168 +193,27 @@ void loop() {
         lastUID = uid;
         lastReadTime = currentTime;
         
-        // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
-        // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
+        // Enviar JSON por Serial
         String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
-        Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
+        Serial.println(jsonMessage);
         
-        // Mensaje de confirmación (opcional, para debugging)
+        // Mensaje de confirmación
         Serial.print("✅ Tag detectado: ");
         Serial.println(uid);
-        
-        // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
-        
-        // Pequeño delay y luego continuar el loop (NO hacer return)
-        delay(100);
-        // Continuar el loop para detectar más tags
-      } else {
-        // Mismo tag reciente, solo detener comunicación
-        mfrc522.PICC_HaltA();
-        delay(50);
       }
-      // Continuar el loop, NO hacer return aquí
-    }
-  }
-  
-  // MÉTODO 2: PICC_RequestA (método alternativo) - más sensible
-  // Solo intentar si el método 1 no detectó nada
-  if (!cardPresent) {
-    byte bufferATQA[2];
-    byte bufferSize = sizeof(bufferATQA);
-    MFRC522::StatusCode status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
-    
-    if (status == MFRC522::STATUS_OK) {
-      Serial.println("🔍 [DEBUG] Señal RFID detectada (método 2), leyendo UID...");
       
-      if (mfrc522.PICC_ReadCardSerial()) {
-        // Obtener el UID
-        String uid = "";
-        for (byte i = 0; i < mfrc522.uid.size; i++) {
-          if (mfrc522.uid.uidByte[i] < 0x10) {
-            uid += "0";
-          }
-          uid += String(mfrc522.uid.uidByte[i], HEX);
-        }
-        uid.toUpperCase();
-        
-        // Aplicar debounce
-        unsigned long currentTime = millis();
-        if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
-          lastUID = uid;
-          lastReadTime = currentTime;
-          
-          // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
-          // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
-          String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
-          Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
-          
-          // Mensaje de confirmación (opcional, para debugging)
-          Serial.print("✅ Tag detectado: ");
-          Serial.println(uid);
-          
-          // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
-          mfrc522.PICC_HaltA();
-          mfrc522.PCD_StopCrypto1();
-          
-          // Pequeño delay y luego continuar el loop (NO hacer return)
-          delay(100);
-          // Continuar el loop para detectar más tags
-        } else {
-          // Mismo tag, solo detener comunicación
-          mfrc522.PICC_HaltA();
-          delay(50);
-        }
-      } else {
-        // Error al leer UID, detener y continuar
-        mfrc522.PICC_HaltA();
-        delay(50);
-      }
+      // Detener comunicación con el tag
+      mfrc522.PICC_HaltA();
+      mfrc522.PCD_StopCrypto1();
+      
+      delay(200); // Delay después de leer para permitir que el tag se aleje
     } else {
-      // No mostrar debug constantemente, solo cada 10 segundos
-      static unsigned long lastDebug = 0;
-      if (millis() - lastDebug > 10000) {
-        Serial.println("🔍 [DEBUG] Método 2: Esperando señal RFID...");
-        lastDebug = millis();
-      }
-    }
-  }
-  
-  // MÉTODO 3: Wake-up A (método adicional) - Solo si los anteriores fallaron
-  if (!cardPresent) {
-    byte bufferATQA2[2];
-    byte bufferSize2 = sizeof(bufferATQA2);
-    MFRC522::StatusCode status2 = mfrc522.PICC_WakeupA(bufferATQA2, &bufferSize2);
-    
-    if (status2 == MFRC522::STATUS_OK) {
-      Serial.println("🔔 [DEBUG] Tag despertado (método 3), leyendo UID...");
-      
-      if (mfrc522.PICC_ReadCardSerial()) {
-        String uid = "";
-        for (byte i = 0; i < mfrc522.uid.size; i++) {
-          if (mfrc522.uid.uidByte[i] < 0x10) {
-            uid += "0";
-          }
-          uid += String(mfrc522.uid.uidByte[i], HEX);
-        }
-        uid.toUpperCase();
-        
-        unsigned long currentTime = millis();
-        if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
-          lastUID = uid;
-          lastReadTime = currentTime;
-          
-          // Enviar JSON por Serial - usar "entry" como acción por defecto
-          // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
-          String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
-          Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
-          
-          // Mensaje de confirmación (opcional, para debugging)
-          Serial.print("✅ Tag detectado: ");
-          Serial.println(uid);
-          
-          // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
-          mfrc522.PICC_HaltA();
-          mfrc522.PCD_StopCrypto1();
-          
-          // Pequeño delay y luego continuar el loop (NO hacer return)
-          delay(100);
-          // Continuar el loop para detectar más tags
-        } else {
-          // Mismo tag reciente, solo detener comunicación
-          mfrc522.PICC_HaltA();
-          delay(50);
-        }
-      } else {
-        // Error al leer UID, detener y continuar
-        mfrc522.PICC_HaltA();
-        delay(50);
-      }
-    }
-  }
-  
-  // IMPORTANTE: Verificar el módulo periódicamente para asegurar detección continua
-  // Esto previene que el módulo quede en un estado donde no detecta más tags
-  // Solo verificar cada 30 segundos para no interferir con la detección
-  static unsigned long lastReinit = 0;
-  if (millis() - lastReinit > 30000) {  // Cada 30 segundos (menos frecuente)
-    // Verificar que el módulo responda
-    byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-    if (version == 0x00 || version == 0xFF) {
-      // Módulo no responde, reinicializar
-      Serial.println("⚠️ [DEBUG] Módulo RFID no responde, reinicializando...");
-      mfrc522.PCD_Init();
+      // Error al leer, detener y continuar
+      mfrc522.PICC_HaltA();
       delay(50);
-      mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
-      mfrc522.PCD_AntennaOn();
-      Serial.println("✓ [DEBUG] Módulo RFID reinicializado");
     }
-    lastReinit = millis();
   }
   
-  // Delay mínimo solo si no se detectó nada
-  if (!cardPresent) {
-    delay(5);  // Delay muy corto para máxima velocidad de escaneo
-  }
+  // Delay mínimo para permitir que el módulo procese la búsqueda
+  delay(25);  // Delay reducido para escaneo más rápido
 }

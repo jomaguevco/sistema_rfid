@@ -8,13 +8,18 @@ require('dotenv').config();
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || process.env.DB_PASS || 'josemariano.2003',
+  password: process.env.DB_PASSWORD || process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'rfid_stock_db',
   charset: 'utf8mb4',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 };
+
+// Validar que la contraseña esté configurada en producción
+if (process.env.NODE_ENV === 'production' && !dbConfig.password) {
+  throw new Error('DB_PASSWORD o DB_PASS debe estar configurado en variables de entorno para producción');
+}
 
 // Crear pool de conexiones con configuración mejorada para reconexión
 const pool = mysql.createPool({
@@ -728,82 +733,91 @@ async function createBatch(batchData) {
         }
       }
       
-      // SEGUNDO: Verificar si el RFID ya está en batch_rfid_tags de otro lote
-      const [existingRfidTags] = await pool.execute(
-        'SELECT batch_id FROM batch_rfid_tags WHERE rfid_uid = ? LIMIT 1',
+      // SEGUNDO: Verificar si el RFID ya está registrado en product_batches o batch_rfid_tags
+      // Buscar en ambas tablas para asegurar validación completa
+      const [existingRfidInBatches] = await pool.execute(
+        `SELECT pb.id, pb.product_id, pb.lot_number, pb.expiry_date, pb.quantity, p.name as product_name 
+         FROM product_batches pb 
+         LEFT JOIN products p ON pb.product_id = p.id 
+         WHERE pb.rfid_uid = ? 
+         LIMIT 1`,
         [normalizedRfid]
       );
       
-      if (existingRfidTags.length > 0) {
-        const existingBatchId = existingRfidTags[0].batch_id;
-        
-        // Obtener información del lote existente para el mensaje de error
-        const [batchInfo] = await pool.execute(
-          `SELECT pb.product_id, pb.lot_number, pb.expiry_date, p.name as product_name 
-           FROM product_batches pb 
+      const [existingRfidTags] = await pool.execute(
+        `SELECT brt.batch_id, pb.product_id, pb.lot_number, pb.expiry_date, pb.quantity, p.name as product_name 
+         FROM batch_rfid_tags brt
+         JOIN product_batches pb ON brt.batch_id = pb.id
            LEFT JOIN products p ON pb.product_id = p.id 
-           WHERE pb.id = ?`,
-          [existingBatchId]
-        );
+         WHERE brt.rfid_uid = ? 
+         LIMIT 1`,
+        [normalizedRfid]
+      );
+      
+      // Combinar resultados de ambas búsquedas
+      const existingRfidInfo = existingRfidInBatches.length > 0 ? existingRfidInBatches[0] : 
+                               (existingRfidTags.length > 0 ? existingRfidTags[0] : null);
+      
+      if (existingRfidInfo) {
+        const existingBatchId = existingRfidInfo.id || existingRfidInfo.batch_id;
+        const existingProductName = existingRfidInfo.product_name || 'Producto desconocido';
+        const existingProductId = existingRfidInfo.product_id;
         
         // Si estamos actualizando un lote existente, verificar que el RFID no pertenezca a otro lote
         if (existingBatches.length > 0) {
           // Si el RFID pertenece a un lote diferente, es error
           if (existingBatchId !== existingBatches[0].id) {
-            const existingProductName = batchInfo[0]?.product_name || 'Producto desconocido';
-            const existingProductId = batchInfo[0]?.product_id;
             const error = new Error(
-              `Este código RFID ya está registrado en otro lote del producto "${existingProductName}" (ID: ${existingProductId}). ` +
+              `⚠️ IDP DUPLICADO: Este código RFID ya está registrado en otro lote del producto "${existingProductName}" (ID: ${existingProductId}). ` +
               `No puedes usar el mismo IDP para otro producto.`
             );
             error.code = 'RFID_DUPLICATE';
             error.batch_info = {
               product_id: existingProductId,
               product_name: existingProductName,
-              lot_number: batchInfo[0]?.lot_number,
-              expiry_date: batchInfo[0]?.expiry_date
+              lot_number: existingRfidInfo.lot_number,
+              expiry_date: existingRfidInfo.expiry_date,
+              quantity: existingRfidInfo.quantity
             };
             throw error;
           }
           // Si pertenece al mismo lote, está bien (permitir múltiples RFID del mismo lote)
         } else {
           // Si estamos creando un nuevo lote, verificar que el RFID no pertenezca a ningún otro lote
-          if (batchInfo.length > 0) {
-            const existingBatch = batchInfo[0];
-            const existingProductName = existingBatch.product_name || 'Producto desconocido';
-            
             // Verificar si es de un producto diferente
-            if (existingBatch.product_id !== product_id) {
+          if (existingProductId !== product_id) {
               const error = new Error(
-                `⚠️ IDP DUPLICADO: Este código RFID ya está registrado con el producto "${existingProductName}" (ID: ${existingBatch.product_id}). ` +
+              `⚠️ IDP DUPLICADO: Este código RFID ya está registrado con el producto "${existingProductName}" (ID: ${existingProductId}). ` +
                 `No puedes usar el mismo IDP para otro producto.`
               );
               error.code = 'RFID_DUPLICATE';
               error.batch_info = {
-                product_id: existingBatch.product_id,
+              product_id: existingProductId,
                 product_name: existingProductName,
-                lot_number: existingBatch.lot_number,
-                expiry_date: existingBatch.expiry_date
+              lot_number: existingRfidInfo.lot_number,
+              expiry_date: existingRfidInfo.expiry_date,
+              quantity: existingRfidInfo.quantity
               };
               throw error;
             }
             
+          // Si es del mismo producto, verificar si es de un lote diferente
             // Solo es error si es de un lote diferente (mismo producto pero diferente lote o fecha)
-            if (existingBatch.lot_number !== lot_number || 
-                new Date(existingBatch.expiry_date).getTime() !== new Date(expiry_date).getTime()) {
+          if (existingRfidInfo.lot_number !== lot_number || 
+              new Date(existingRfidInfo.expiry_date).getTime() !== new Date(expiry_date).getTime()) {
               const error = new Error(
                 `Este código RFID ya está registrado en otro lote del mismo producto "${existingProductName}" ` +
-                `(Lote: ${existingBatch.lot_number}, Vence: ${existingBatch.expiry_date}).`
+              `(Lote: ${existingRfidInfo.lot_number}, Vence: ${existingRfidInfo.expiry_date}).`
               );
               error.code = 'RFID_DUPLICATE';
               error.batch_info = {
-                product_id: existingBatch.product_id,
+              product_id: existingProductId,
                 product_name: existingProductName,
-                lot_number: existingBatch.lot_number,
-                expiry_date: existingBatch.expiry_date
+              lot_number: existingRfidInfo.lot_number,
+              expiry_date: existingRfidInfo.expiry_date,
+              quantity: existingRfidInfo.quantity
               };
               throw error;
-            }
           }
         }
       }
