@@ -45,22 +45,36 @@ router.get('/stats', async (req, res) => {
       `SELECT COALESCE(SUM(quantity), 0) as total FROM product_batches WHERE quantity > 0`
     );
 
+    // Log silencioso - solo mostrar en caso de error
+    const stats = {
+      total_products: products[0]?.total || 0,
+      expired_products: expiredBatches[0]?.total || 0,
+      expiring_soon: expiringBatches[0]?.total || 0,
+      low_stock_products: lowStockProducts[0]?.total || 0,
+      total_alerts: alerts[0]?.total || 0,
+      critical_alerts: criticalAlerts[0]?.total || 0,
+      total_stock: totalStock[0]?.total || 0
+    };
+
     res.json({
       success: true,
       data: {
-        total_products: products[0].total,
-        expired_products: expiredBatches[0].total,
-        expiring_soon: expiringBatches[0].total,
-        low_stock_products: lowStockProducts.length,
-        total_alerts: alerts[0].total,
-        critical_alerts: criticalAlerts[0].total,
-        total_stock: totalStock[0].total
+        total_products: products[0]?.total || 0,
+        expired_products: expiredBatches[0]?.total || 0,
+        expiring_soon: expiringBatches[0]?.total || 0,
+        low_stock_products: lowStockProducts[0]?.total || 0,
+        total_alerts: alerts[0]?.total || 0,
+        critical_alerts: criticalAlerts[0]?.total || 0,
+        total_stock: totalStock[0]?.total || 0
       }
     });
   } catch (error) {
+    console.error('❌ Error en /dashboard/stats:', error);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });

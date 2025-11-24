@@ -124,6 +124,17 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
     }
   }, [itemForm.product_search, products])
 
+  // Debug: Log del estado de itemForm cuando cambia
+  useEffect(() => {
+    console.log('🔍 [DEBUG] itemForm cambió:', {
+      product_id: itemForm.product_id,
+      product_id_type: typeof itemForm.product_id,
+      quantity_required: itemForm.quantity_required,
+      quantity_type: typeof itemForm.quantity_required,
+      canAdd: !!(itemForm.product_id && itemForm.quantity_required && parseInt(itemForm.quantity_required) >= 1)
+    })
+  }, [itemForm])
+
   // Actualizar resultados de búsqueda de pacientes
   useEffect(() => {
     if (patientsData) {
@@ -147,13 +158,37 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
   }, [doctorsData])
 
   const selectProduct = (product) => {
-    setItemForm({
-      ...itemForm,
-      product_id: product.id,
-      product_search: `${product.name}${product.active_ingredient ? ` - ${product.active_ingredient}` : ''}`
+    console.log('🔍 [DEBUG] selectProduct llamado con:', product)
+    console.log('🔍 [DEBUG] Campos del producto:', Object.keys(product))
+    console.log('🔍 [DEBUG] product.id:', product.id)
+    console.log('🔍 [DEBUG] product.product_id:', product.product_id)
+    
+    // El endpoint /products retorna productos con product_id, no id
+    const productId = parseInt(product.product_id || product.id) || product.product_id || product.id
+    
+    console.log('🔍 [DEBUG] productId calculado:', productId, 'tipo:', typeof productId)
+    
+    if (!productId) {
+      console.error('❌ [DEBUG] No se pudo obtener product_id del producto:', product)
+      alert('Error: No se pudo obtener el ID del producto. Por favor, intenta nuevamente.')
+      return
+    }
+    
+    // Usar función de actualización de estado para asegurar que se actualice correctamente
+    setItemForm(prev => {
+      const newForm = {
+        ...prev,
+        product_id: productId,
+        product_search: `${product.name}${product.active_ingredient ? ` - ${product.active_ingredient}` : ''}`
+      }
+      console.log('🔍 [DEBUG] Nuevo itemForm en setItemForm:', newForm)
+      return newForm
     })
+    
     setSelectedProductInfo(product)
     setShowProductDropdown(false)
+    
+    console.log('✅ [DEBUG] Producto seleccionado exitosamente, product_id:', productId)
   }
 
   const selectPatient = (patient) => {
@@ -233,21 +268,62 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
   }
 
   const addItem = () => {
-    if (!itemForm.product_id || !itemForm.quantity_required || itemForm.quantity_required < 1) {
+    console.log('🔍 [DEBUG] addItem llamado')
+    console.log('🔍 [DEBUG] itemForm:', itemForm)
+    console.log('🔍 [DEBUG] selectedProductInfo:', selectedProductInfo)
+    console.log('🔍 [DEBUG] products:', products)
+    
+    // Validar que quantity_required sea un número válido
+    const quantityValue = parseInt(itemForm.quantity_required)
+    console.log('🔍 [DEBUG] quantityValue:', quantityValue)
+    
+    if (!itemForm.product_id) {
+      console.error('❌ [DEBUG] No hay product_id')
+      alert('Por favor, selecciona un medicamento de la lista desplegable')
+      return
+    }
+    
+    if (!quantityValue || quantityValue < 1 || isNaN(quantityValue)) {
+      console.error('❌ [DEBUG] Cantidad inválida:', quantityValue)
+      alert('Por favor, especifica una cantidad válida (mayor a 0)')
       return
     }
 
-    const product = products.find(p => p.id === parseInt(itemForm.product_id))
-    if (!product) return
+    const productId = parseInt(itemForm.product_id)
+    console.log('🔍 [DEBUG] productId:', productId)
+    
+    if (!products || products.length === 0) {
+      console.error('❌ [DEBUG] No hay productos cargados')
+      alert('Error: Los productos no están cargados. Por favor, espera un momento e intenta nuevamente.')
+      return
+    }
+    
+    // Buscar por product_id o id (el endpoint /products retorna product_id)
+    const product = products.find(p => (p.product_id || p.id) === productId)
+    console.log('🔍 [DEBUG] product encontrado:', product)
+    
+    if (!product) {
+      console.error('❌ [DEBUG] Producto no encontrado con id:', productId)
+      alert(`Error: No se encontró el producto seleccionado (ID: ${productId}). Por favor, selecciona el medicamento nuevamente.`)
+      return
+    }
+
+    // Verificar que no se agregue el mismo producto dos veces
+    const existingItem = items.find(item => item.product_id === productId)
+    if (existingItem) {
+      alert(`El medicamento "${product.name}" ya está en la lista. Si necesitas más cantidad, elimínalo y vuelve a agregarlo con la cantidad total deseada.`)
+      return
+    }
 
     const newItem = {
       id: Date.now(),
-      product_id: parseInt(itemForm.product_id),
+      product_id: productId,
       product_name: product.name,
-      quantity_required: parseInt(itemForm.quantity_required),
+      quantity_required: quantityValue,
       instructions: itemForm.instructions.trim()
     }
 
+    console.log('✅ [DEBUG] Agregando item:', newItem)
     setItems([...items, newItem])
     setItemForm({
       product_id: '',
@@ -257,6 +333,7 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
     })
     setSelectedProductInfo(null)
     setShowProductDropdown(false)
+    console.log('✅ [DEBUG] Item agregado exitosamente')
   }
 
   const removeItem = (itemId) => {
@@ -296,18 +373,19 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       return
     }
 
+    // Asegurar tipos correctos antes de enviar
     const submitData = {
-      patient_name: formData.patient_name,
-      patient_id: formData.patient_id || null,
-      patient_id_number: formData.patient_id_number || null,
-      doctor_name: formData.doctor_name,
-      doctor_id: formData.doctor_id || null,
-      doctor_license: formData.doctor_license || null,
+      patient_name: formData.patient_name.trim(),
+      patient_id: formData.patient_id ? parseInt(formData.patient_id) : null,
+      patient_id_number: formData.patient_id_number?.trim() || null,
+      doctor_name: formData.doctor_name.trim(),
+      doctor_id: formData.doctor_id ? parseInt(formData.doctor_id) : null,
+      doctor_license: formData.doctor_license?.trim() || null,
       prescription_date: formData.prescription_date,
-      notes: formData.notes || null,
+      notes: formData.notes?.trim() || null,
       items: items.map(item => ({
-        product_id: item.product_id,
-        quantity_required: item.quantity_required,
+        product_id: parseInt(item.product_id) || item.product_id,
+        quantity_required: parseInt(item.quantity_required) || item.quantity_required,
         instructions: item.instructions || null
       }))
     }
@@ -564,7 +642,7 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                   <div className="product-dropdown" onMouseDown={(e) => e.preventDefault()}>
                     {productSearchResults.map((product) => (
                       <div
-                        key={product.id}
+                        key={product.product_id || product.id || Math.random()}
                         className="product-dropdown-item"
                         onMouseDown={(e) => {
                           e.preventDefault()
@@ -608,14 +686,35 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                 type="number"
                 min="1"
                 value={itemForm.quantity_required}
-                onChange={(e) => setItemForm({ ...itemForm, quantity_required: e.target.value })}
+                onChange={(e) => {
+                  const value = e.target.value
+                  // Convertir a número, mantener como string solo si está vacío
+                  const numValue = value === '' ? 1 : Math.max(1, parseInt(value) || 1)
+                  setItemForm({ ...itemForm, quantity_required: numValue })
+                }}
                 required
               />
               <Button
                 type="button"
                 variant="primary"
                 onClick={addItem}
-                disabled={!itemForm.product_id || !itemForm.quantity_required || !selectedProductInfo}
+                disabled={(() => {
+                  const hasProductId = !!itemForm.product_id && itemForm.product_id !== '' && itemForm.product_id !== null && itemForm.product_id !== undefined
+                  const quantity = parseInt(itemForm.quantity_required) || 0
+                  const hasValidQuantity = quantity >= 1
+                  const isDisabled = !hasProductId || !hasValidQuantity
+                  
+                  console.log('🔍 [DEBUG] Validación del botón:', {
+                    hasProductId,
+                    hasValidQuantity,
+                    product_id: itemForm.product_id,
+                    quantity_required: itemForm.quantity_required,
+                    quantity,
+                    isDisabled
+                  })
+                  
+                  return isDisabled
+                })()}
               >
                 <HiPlus />
                 Agregar

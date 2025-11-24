@@ -123,3 +123,31 @@
   text-align: center;
 }
 
+.prescription-summary {
+  background-color: var(--color-gray-50);
+  padding: var(--spacing-4);
+  border-radius: var(--border-radius-md);
+  margin-bottom: var(--spacing-4);
+}
+
+.prescription-summary .info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-2) 0;
+  border-bottom: 1px solid var(--color-gray-200);
+}
+
+.prescription-summary .info-row:last-child {
+  border-bottom: none;
+}
+
+.prescription-summary .info-row .label {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-600);
+}
+
+.prescription-summary .info-row .value {
+  color: var(--color-gray-900);
+  text-align: right;
+}
+

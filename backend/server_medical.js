@@ -257,7 +257,37 @@ io.on('connection', (socket) => {
 
 // Inicializar comunicación serial con Arduino
 console.log('🚀 Iniciando servidor médico...');
-serialHandler.initSerial();
+serialHandler.initSerial().catch(err => {
+  console.error('✗ Error al inicializar comunicación serial:', err.message);
+});
+
+// Ruta para verificar estado del puerto serial
+app.get('/api/serial/status', authenticateToken, async (req, res) => {
+  try {
+    const isOpen = serialHandler.isSerialOpen();
+    const ports = await serialHandler.getAvailablePorts();
+    
+    res.json({
+      success: true,
+      data: {
+        isOpen,
+        configuredPort: process.env.SERIAL_PORT || 'COM4',
+        baudRate: parseInt(process.env.BAUD_RATE || '115200'),
+        availablePorts: ports.map(p => ({
+          path: p.path,
+          manufacturer: p.manufacturer,
+          vendorId: p.vendorId,
+          productId: p.productId
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // Verificar alertas al iniciar
 const db = require('./database_medical');

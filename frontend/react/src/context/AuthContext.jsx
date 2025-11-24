@@ -75,13 +75,24 @@ export function AuthProvider({ children }) {
       '/dashboard',
       '/stock',
       '/prescriptions',
+      '/qr-scanner',
       '/predictions',
       '/stock-entry',
       '/stock-exit'
     ]
 
+    // Rutas permitidas para Médico
+    const medicoRoutes = [
+      '/dashboard',
+      '/prescriptions'
+    ]
+
     if (user.role === 'farmaceutico') {
       return farmaceuticoRoutes.includes(route)
+    }
+
+    if (user.role === 'medico') {
+      return medicoRoutes.includes(route)
     }
 
     return false

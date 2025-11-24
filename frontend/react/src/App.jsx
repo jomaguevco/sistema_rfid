@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import Products from './pages/Products'
 import Stock from './pages/Stock'
 import Prescriptions from './pages/Prescriptions'
+import QRScanner from './pages/QRScanner'
 import StockEntry from './pages/StockEntry'
 import StockExit from './pages/StockExit'
 import Predictions from './pages/Predictions'
@@ -53,6 +54,7 @@ function App() {
                   <Route path="products" element={<Products />} />
                   <Route path="stock" element={<Stock />} />
                   <Route path="prescriptions" element={<Prescriptions />} />
+                  <Route path="qr-scanner" element={<QRScanner />} />
                   <Route path="stock-entry" element={<StockEntry />} />
                   <Route path="stock-exit" element={<StockExit />} />
                   <Route path="predictions" element={<Predictions />} />

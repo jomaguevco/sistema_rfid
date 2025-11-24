@@ -133,11 +133,45 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
+    // Validar que el RFID no tenga stock activo antes de crear/actualizar
+    if (rfid_uid) {
+      const normalizedRfid = rfid_uid.toUpperCase().trim();
+      const hasActiveStock = await db.checkRfidHasActiveStock(normalizedRfid);
+      
+      if (hasActiveStock) {
+        // Obtener información del lote con stock activo para el mensaje de error
+        const batchesWithStock = await db.getBatchesByRfidUid(normalizedRfid);
+        const activeBatch = batchesWithStock.find(b => b.quantity > 0);
+        
+        if (activeBatch) {
+          return res.status(400).json({
+            success: false,
+            error: `Este código RFID ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${activeBatch.product_name || 'N/A'}"). Solo se puede ingresar nuevamente cuando el stock llegue a 0.`,
+            batch_info: {
+              product_name: activeBatch.product_name,
+              quantity: activeBatch.quantity,
+              lot_number: activeBatch.lot_number,
+              expiry_date: activeBatch.expiry_date
+            }
+          });
+        }
+      }
+    }
+
+    // Validar quantity antes de crear batch
+    const quantityValue = parseInt(quantity);
+    if (!quantity || isNaN(quantityValue) || quantityValue <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'La cantidad debe ser un número entero positivo mayor a 0'
+      });
+    }
+
     const batch = await db.createBatch({
       product_id: parseInt(product_id),
       lot_number: lot_number.trim(),
       expiry_date,
-      quantity: parseInt(quantity) || 0,
+      quantity: quantityValue,
       rfid_uid: rfid_uid || null,
       entry_date: entry_date || new Date()
     });
@@ -157,7 +191,15 @@ router.post('/', authenticateToken, async (req, res) => {
     if (error.code === 'RFID_DUPLICATE') {
       return res.status(400).json({
         success: false,
-        error: error.message || 'Este código RFID ya está registrado en otro lote'
+        error: error.message || 'Este código RFID ya está registrado en otro lote',
+        batch_info: error.batch_info || null
+      });
+    }
+    if (error.code === 'RFID_HAS_ACTIVE_STOCK') {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+        batch_info: error.batch_info || null
       });
     }
     res.status(500).json({

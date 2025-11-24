@@ -21,7 +21,13 @@ async function initializeScheduledReports() {
     
     console.log('✓ Reportes programados inicializados');
   } catch (error) {
-    console.error('Error al inicializar reportes programados:', error);
+    // Si la tabla no existe, solo mostrar advertencia pero no fallar
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.message.includes("doesn't exist")) {
+      console.log('⚠️  Tabla scheduled_reports no existe. Los reportes programados estarán deshabilitados.');
+      console.log('💡 Ejecuta: node crear_scheduled_reports.js para crear las tablas necesarias');
+    } else {
+      console.error('Error al inicializar reportes programados:', error);
+    }
   }
 }
 

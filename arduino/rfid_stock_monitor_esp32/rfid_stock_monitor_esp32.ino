@@ -101,11 +101,19 @@ void setup() {
   
   delay(200);
   
-  // Aumentar ganancia de la antena para mejor detección
+  // Aumentar ganancia de la antena para mejor detección (máxima sensibilidad)
   mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
   
   // Activar la antena
   mfrc522.PCD_AntennaOn();
+  
+  // Configurar para máxima sensibilidad
+  // Aumentar el tiempo de búsqueda de tarjetas
+  mfrc522.PCD_WriteRegister(mfrc522.RFCfgReg, 0x70);  // Ganancia máxima (48dB)
+  
+  // Configurar para detección continua
+  mfrc522.PCD_WriteRegister(mfrc522.TxSelReg, 0x83);  // Fuerza 100% ASK
+  mfrc522.PCD_WriteRegister(mfrc522.RxSelReg, 0x80);  // Sin filtro
   
   Serial.println("✓ MFRC522 inicializado");
   Serial.println("✓ Antena activada con ganancia máxima\n");
@@ -246,19 +254,13 @@ void loop() {
   }
   
   // MÉTODO 1: PICC_IsNewCardPresent (método estándar) - más sensible
-  // Intentar múltiples veces para mejorar detección
-  bool cardPresent = false;
-  for (int attempt = 0; attempt < 3; attempt++) {
-    if (mfrc522.PICC_IsNewCardPresent()) {
-      cardPresent = true;
-      break;
-    }
-    delay(10);
-  }
+  // Sin delay para máxima velocidad de detección
+  bool cardPresent = mfrc522.PICC_IsNewCardPresent();
   
   if (cardPresent) {
-    Serial.println("📡 Tarjeta detectada (método 1)");
+    Serial.println("📡 [DEBUG] Tarjeta detectada!");
     
+    // Intentar leer inmediatamente (sin delays innecesarios)
     if (mfrc522.PICC_ReadCardSerial()) {
       // Obtener el UID
       String uid = "";
@@ -277,125 +279,167 @@ void loop() {
         lastReadTime = currentTime;
         
         // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
-        // El backend puede interpretarlo según el contexto de la página
-        Serial.print("{\"action\":\"entry\",\"uid\":\"");
-        Serial.print(uid);
-        Serial.println("\"}");
+        // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
+        String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
+        Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
         
+        // Mensaje de confirmación (opcional, para debugging)
         Serial.print("✅ Tag detectado: ");
         Serial.println(uid);
         
+        // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
         mfrc522.PICC_HaltA();
         mfrc522.PCD_StopCrypto1();
-        delay(500);
-      } else {
-        mfrc522.PICC_HaltA();
+        
+        // Pequeño delay y luego continuar el loop (NO hacer return)
         delay(100);
+        // Continuar el loop para detectar más tags
+      } else {
+        // Mismo tag reciente, solo detener comunicación
+        mfrc522.PICC_HaltA();
+        delay(50);
       }
-      return;
+      // Continuar el loop, NO hacer return aquí
     }
   }
   
   // MÉTODO 2: PICC_RequestA (método alternativo) - más sensible
-  byte bufferATQA[2];
-  byte bufferSize = sizeof(bufferATQA);
-  MFRC522::StatusCode status;
-  
-  // Intentar múltiples veces
-  for (int attempt = 0; attempt < 3; attempt++) {
-    status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+  // Solo intentar si el método 1 no detectó nada
+  if (!cardPresent) {
+    byte bufferATQA[2];
+    byte bufferSize = sizeof(bufferATQA);
+    MFRC522::StatusCode status = mfrc522.PICC_RequestA(bufferATQA, &bufferSize);
+    
     if (status == MFRC522::STATUS_OK) {
-      break;
-    }
-    delay(10);
-  }
-  
-  if (status == MFRC522::STATUS_OK) {
-    Serial.println("🔍 Señal RFID detectada (método 2), leyendo UID...");
-    
-    if (mfrc522.PICC_ReadCardSerial()) {
-      // Obtener el UID
-      String uid = "";
-      for (byte i = 0; i < mfrc522.uid.size; i++) {
-        if (mfrc522.uid.uidByte[i] < 0x10) {
-          uid += "0";
-        }
-        uid += String(mfrc522.uid.uidByte[i], HEX);
-      }
-      uid.toUpperCase();
+      Serial.println("🔍 [DEBUG] Señal RFID detectada (método 2), leyendo UID...");
       
-      // Aplicar debounce
-      unsigned long currentTime = millis();
-      if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
-        lastUID = uid;
-        lastReadTime = currentTime;
+      if (mfrc522.PICC_ReadCardSerial()) {
+        // Obtener el UID
+        String uid = "";
+        for (byte i = 0; i < mfrc522.uid.size; i++) {
+          if (mfrc522.uid.uidByte[i] < 0x10) {
+            uid += "0";
+          }
+          uid += String(mfrc522.uid.uidByte[i], HEX);
+        }
+        uid.toUpperCase();
         
-        // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
-        // El backend puede interpretarlo según el contexto de la página
-        Serial.print("{\"action\":\"entry\",\"uid\":\"");
-        Serial.print(uid);
-        Serial.println("\"}");
-        
-        Serial.print("✅ Tag detectado: ");
-        Serial.println(uid);
-        
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
-        delay(500);
+        // Aplicar debounce
+        unsigned long currentTime = millis();
+        if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
+          lastUID = uid;
+          lastReadTime = currentTime;
+          
+          // Enviar JSON por Serial - usar "entry" para compatibilidad con entrada de stock
+          // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
+          String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
+          Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
+          
+          // Mensaje de confirmación (opcional, para debugging)
+          Serial.print("✅ Tag detectado: ");
+          Serial.println(uid);
+          
+          // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
+          mfrc522.PICC_HaltA();
+          mfrc522.PCD_StopCrypto1();
+          
+          // Pequeño delay y luego continuar el loop (NO hacer return)
+          delay(100);
+          // Continuar el loop para detectar más tags
+        } else {
+          // Mismo tag, solo detener comunicación
+          mfrc522.PICC_HaltA();
+          delay(50);
+        }
       } else {
+        // Error al leer UID, detener y continuar
         mfrc522.PICC_HaltA();
-        delay(100);
+        delay(50);
       }
-      return;
     } else {
-      Serial.println("⚠ Error al leer UID después de detectar señal");
-      mfrc522.PICC_HaltA();
-      delay(200);
+      // No mostrar debug constantemente, solo cada 10 segundos
+      static unsigned long lastDebug = 0;
+      if (millis() - lastDebug > 10000) {
+        Serial.println("🔍 [DEBUG] Método 2: Esperando señal RFID...");
+        lastDebug = millis();
+      }
     }
   }
   
-  // MÉTODO 3: Wake-up A (método adicional para mejorar detección)
-  byte bufferATQA2[2];
-  byte bufferSize2 = sizeof(bufferATQA2);
-  MFRC522::StatusCode status2 = mfrc522.PICC_WakeupA(bufferATQA2, &bufferSize2);
-  
-  if (status2 == MFRC522::STATUS_OK) {
-    Serial.println("🔔 Tag despertado (método 3), leyendo UID...");
+  // MÉTODO 3: Wake-up A (método adicional) - Solo si los anteriores fallaron
+  if (!cardPresent) {
+    byte bufferATQA2[2];
+    byte bufferSize2 = sizeof(bufferATQA2);
+    MFRC522::StatusCode status2 = mfrc522.PICC_WakeupA(bufferATQA2, &bufferSize2);
     
-    if (mfrc522.PICC_ReadCardSerial()) {
-      String uid = "";
-      for (byte i = 0; i < mfrc522.uid.size; i++) {
-        if (mfrc522.uid.uidByte[i] < 0x10) {
-          uid += "0";
-        }
-        uid += String(mfrc522.uid.uidByte[i], HEX);
-      }
-      uid.toUpperCase();
+    if (status2 == MFRC522::STATUS_OK) {
+      Serial.println("🔔 [DEBUG] Tag despertado (método 3), leyendo UID...");
       
-      unsigned long currentTime = millis();
-      if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
-        lastUID = uid;
-        lastReadTime = currentTime;
+      if (mfrc522.PICC_ReadCardSerial()) {
+        String uid = "";
+        for (byte i = 0; i < mfrc522.uid.size; i++) {
+          if (mfrc522.uid.uidByte[i] < 0x10) {
+            uid += "0";
+          }
+          uid += String(mfrc522.uid.uidByte[i], HEX);
+        }
+        uid.toUpperCase();
         
-        // Enviar JSON por Serial - usar "entry" como acción por defecto
-        // El backend puede interpretarlo según el contexto
-        Serial.print("{\"action\":\"entry\",\"uid\":\"");
-        Serial.print(uid);
-        Serial.println("\"}");
-        
-        Serial.print("✅ Tag detectado: ");
-        Serial.println(uid);
-        
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
-        delay(500);
+        unsigned long currentTime = millis();
+        if (uid != lastUID || (currentTime - lastReadTime) > DEBOUNCE_TIME) {
+          lastUID = uid;
+          lastReadTime = currentTime;
+          
+          // Enviar JSON por Serial - usar "entry" como acción por defecto
+          // IMPORTANTE: Enviar todo el JSON en una sola línea para evitar fragmentación
+          String jsonMessage = "{\"action\":\"entry\",\"uid\":\"" + uid + "\"}";
+          Serial.println(jsonMessage);  // Serial.println agrega \r\n automáticamente
+          
+          // Mensaje de confirmación (opcional, para debugging)
+          Serial.print("✅ Tag detectado: ");
+          Serial.println(uid);
+          
+          // IMPORTANTE: Detener comunicación con el tag y reinicializar para siguiente lectura
+          mfrc522.PICC_HaltA();
+          mfrc522.PCD_StopCrypto1();
+          
+          // Pequeño delay y luego continuar el loop (NO hacer return)
+          delay(100);
+          // Continuar el loop para detectar más tags
+        } else {
+          // Mismo tag reciente, solo detener comunicación
+          mfrc522.PICC_HaltA();
+          delay(50);
+        }
       } else {
+        // Error al leer UID, detener y continuar
         mfrc522.PICC_HaltA();
-        delay(100);
+        delay(50);
       }
-      return;
     }
   }
   
-  delay(10);  // Delay más corto para mejor respuesta
+  // IMPORTANTE: Verificar el módulo periódicamente para asegurar detección continua
+  // Esto previene que el módulo quede en un estado donde no detecta más tags
+  // Solo verificar cada 30 segundos para no interferir con la detección
+  static unsigned long lastReinit = 0;
+  if (millis() - lastReinit > 30000) {  // Cada 30 segundos (menos frecuente)
+    // Verificar que el módulo responda
+    byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
+    if (version == 0x00 || version == 0xFF) {
+      // Módulo no responde, reinicializar
+      Serial.println("⚠️ [DEBUG] Módulo RFID no responde, reinicializando...");
+      mfrc522.PCD_Init();
+      delay(50);
+      mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
+      mfrc522.PCD_AntennaOn();
+      Serial.println("✓ [DEBUG] Módulo RFID reinicializado");
+    }
+    lastReinit = millis();
+  }
+  
+  // Delay mínimo solo si no se detectó nada
+  if (!cardPresent) {
+    delay(5);  // Delay muy corto para máxima velocidad de escaneo
+  }
 }

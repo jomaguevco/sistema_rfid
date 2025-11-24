@@ -9,13 +9,11 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
  */
 async function authenticateToken(req, res, next) {
   try {
-    console.log(`🔐 Autenticación: ${req.method} ${req.path}`);
     // Obtener token del header Authorization
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
-      console.log('✗ No hay token en la petición');
       return res.status(401).json({
         success: false,
         error: 'Token de autenticación requerido'
@@ -25,9 +23,11 @@ async function authenticateToken(req, res, next) {
     // Verificar token
     jwt.verify(token, JWT_SECRET, async (err, decoded) => {
       if (err) {
+        console.error('✗ [AUTH] Token inválido:', err.message);
         return res.status(403).json({
           success: false,
-          error: 'Token inválido o expirado'
+          error: 'Token inválido o expirado',
+          details: process.env.NODE_ENV === 'development' ? err.message : undefined
         });
       }
 
@@ -39,21 +39,42 @@ async function authenticateToken(req, res, next) {
         );
 
         if (users.length === 0) {
-          console.warn(`⚠️ Usuario ${decoded.userId} no encontrado o inactivo`);
+          console.warn(`⚠️  [AUTH] Usuario ${decoded.userId} no encontrado o inactivo`);
           return res.status(403).json({
             success: false,
-            error: 'Usuario no encontrado o inactivo'
+            error: 'Usuario no encontrado o inactivo',
+            details: process.env.NODE_ENV === 'development' ? `Usuario ID: ${decoded.userId}` : undefined
           });
         }
 
         // Agregar información del usuario al request
         req.user = users[0];
         req.userId = decoded.userId;
-        console.log(`✅ Usuario autenticado: ${users[0].username} (${users[0].role})`);
+        // Log silencioso - solo para debugging si es necesario
         next();
       } catch (dbError) {
-        console.error('✗ Error al verificar usuario en BD:', dbError);
-        console.error('Stack:', dbError.stack);
+        // Manejar errores de conexión de forma más elegante
+        if (dbError.code === 'ECONNRESET' || dbError.code === 'PROTOCOL_CONNECTION_LOST' || dbError.code === 'ETIMEDOUT') {
+          console.error('⚠️  [DB] Conexión perdida, reintentando...');
+          // Reintentar una vez
+          try {
+            const [retryUsers] = await db.pool.query(
+              'SELECT id, username, email, role, is_active FROM users WHERE id = ? AND is_active = TRUE',
+              [decoded.userId]
+            );
+            if (retryUsers.length > 0) {
+              req.user = retryUsers[0];
+              req.userId = decoded.userId;
+              console.log(`✅ Usuario autenticado: ${retryUsers[0].username} (${retryUsers[0].role})`);
+              next();
+              return;
+            }
+          } catch (retryError) {
+            // Si el reintento falla, devolver error
+          }
+        }
+        // Solo mostrar error esencial, no el stack completo
+        console.error('✗ [DB] Error:', dbError.code || 'Desconocido', '-', dbError.message);
         return res.status(500).json({
           success: false,
           error: 'Error al verificar autenticación',
@@ -103,7 +124,7 @@ async function optionalAuth(req, res, next) {
               req.userId = decoded.userId;
             }
           } catch (dbError) {
-            // Continuar sin usuario autenticado
+            // Continuar sin usuario autenticado (errores de conexión se ignoran silenciosamente)
           }
         }
         next();

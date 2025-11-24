@@ -13,6 +13,9 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+      console.log('🔑 Token agregado a petición:', config.url)
+    } else {
+      console.warn('⚠️ No hay token disponible para:', config.url)
     }
     return config
   },
@@ -25,10 +28,23 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Manejar errores 401 (No autorizado) y 403 (Prohibido)
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.error('❌ Error de autenticación:', {
+        status: error.response.status,
+        message: error.response.data?.error,
+        path: error.config?.url
+      })
+      
+      // Limpiar datos de sesión
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      window.location.href = '/login'
+      delete api.defaults.headers.common['Authorization']
+      
+      // Redirigir al login solo si no estamos ya en la página de login
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

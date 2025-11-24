@@ -123,9 +123,9 @@ export default function Stock() {
   const hasActiveFilters = Object.values(filters).some(v => v !== '')
 
   const handleViewStockDetail = (row) => {
-    // Usar el product_id para obtener todos los lotes del producto
-    // El IDP se normaliza del RFID principal del producto
-    const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid
+    // Usar rfid_uid como campo principal (estandarizado)
+    // rfid_code es solo para display formateado
+    const rfid = row.rfid_uid || row.rfid_code || null
     if (rfid && rfid !== '-') {
       setSelectedRfidCode(rfid)
       setShowStockDetail(true)
@@ -138,9 +138,11 @@ export default function Stock() {
       header: 'Código IDP',
       className: 'col-rfid',
       render: (_, row) => {
-        const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid || '-'
-        const formattedRfid = formatRfidCode(rfid)
-        const isEmpty = formattedRfid === '-'
+        // Usar rfid_uid como campo principal (estandarizado)
+        // rfid_code es solo para display formateado, mantener compatibilidad
+        const rfid = row.rfid_uid || row.rfid_code || null
+        const formattedRfid = rfid ? formatRfidCode(rfid) : '-'
+        const isEmpty = !rfid || formattedRfid === '-'
         return (
           <span className={`rfid-code-container ${isEmpty ? 'empty' : ''}`}>
             <span className="rfid-code">{formattedRfid}</span>
@@ -202,7 +204,8 @@ export default function Stock() {
       header: 'Acciones',
       className: 'col-actions',
       render: (_, row) => {
-        const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid
+        // Usar rfid_uid como campo principal (estandarizado)
+        const rfid = row.rfid_uid || row.rfid_code || null
         const hasRfid = rfid && rfid !== '-'
         const isAdmin = hasRole('admin')
         

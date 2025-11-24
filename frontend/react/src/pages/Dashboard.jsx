@@ -18,17 +18,30 @@ export default function Dashboard() {
   const { hasRole } = useAuth()
   const isAdmin = hasRole('admin')
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: statsError } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
       try {
         const response = await api.get('/dashboard/stats')
+        console.log('✅ Respuesta del dashboard:', response.data)
+        if (!response.data.success) {
+          console.error('❌ Error en respuesta del servidor:', response.data.error)
+          throw new Error(response.data.error || 'Error al obtener estadísticas')
+        }
         return response.data.data || {}
       } catch (error) {
-        console.error('Error al cargar estadísticas:', error)
-        return {}
+        console.error('❌ Error al cargar estadísticas:', error)
+        console.error('Detalles del error:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          statusText: error.response?.statusText
+        })
+        throw error
       }
-    }
+    },
+    retry: 2,
+    refetchOnWindowFocus: true
   })
 
   const { data: prescriptions, isLoading: loadingPrescriptions } = useQuery({
@@ -46,6 +59,63 @@ export default function Dashboard() {
 
   if (isLoading) {
     return <Loading fullScreen text="Cargando dashboard..." />
+  }
+
+  if (statsError) {
+    return (
+      <div className="dashboard">
+        <div className="dashboard-header">
+          <h1>Dashboard</h1>
+          <p className="dashboard-subtitle">Vista general del sistema</p>
+        </div>
+        <Card className="error-card" shadow="md">
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <HiExclamationCircle style={{ fontSize: '3rem', color: '#ef4444', marginBottom: '1rem' }} />
+            <h2 style={{ color: '#ef4444', marginBottom: '0.5rem' }}>Error al cargar datos</h2>
+            <p style={{ color: '#666', marginBottom: '1rem' }}>
+              {statsError.response?.status === 401 
+                ? 'No estás autenticado. Por favor, inicia sesión nuevamente.'
+                : statsError.response?.status === 403
+                ? 'Tu sesión ha expirado o no tienes permisos. Por favor, inicia sesión nuevamente.'
+                : statsError.response?.status === 500
+                ? 'Error en el servidor. Verifica que el backend esté corriendo y la base de datos esté conectada.'
+                : statsError.message || 'Error desconocido al conectar con el servidor.'
+              }
+            </p>
+            {statsError.response?.status === 403 && (
+              <p style={{ color: '#999', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                {statsError.response?.data?.error || 'Token inválido o expirado'}
+              </p>
+            )}
+            <p style={{ color: '#999', fontSize: '0.875rem' }}>
+              Estado: {statsError.response?.status || 'Sin conexión'} | 
+              URL: {statsError.config?.url || 'N/A'}
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1rem' }}>
+              {(statsError.response?.status === 401 || statsError.response?.status === 403) ? (
+                <Button 
+                  onClick={() => {
+                    localStorage.removeItem('token')
+                    localStorage.removeItem('user')
+                    window.location.href = '/login'
+                  }}
+                  variant="primary"
+                >
+                  Ir al Login
+                </Button>
+              ) : (
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="primary"
+                >
+                  Reintentar
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   const metrics = [

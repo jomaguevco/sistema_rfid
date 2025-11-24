@@ -1,0 +1,204 @@
+.qr-scanner-page {
+  padding: 2rem;
+}
+
+.qr-scanner-header {
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.qr-scanner-header h1 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+  color: #1f2937;
+}
+
+.qr-scanner-header .icon {
+  font-size: 2rem;
+}
+
+.qr-scanner-header p {
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+.qr-scanner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.scanner-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.scanner-controls {
+  display: flex;
+  justify-content: center;
+}
+
+.scanner-preview {
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.scanner-preview #qr-reader {
+  width: 100%;
+  max-width: 400px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.scanner-hint {
+  color: #6b7280;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.scanner-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.scanner-divider::before,
+.scanner-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.scanner-divider span {
+  padding: 0 1rem;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.manual-input-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.manual-input-section h3 {
+  font-size: 1.125rem;
+  color: #1f2937;
+  margin-bottom: 0.5rem;
+}
+
+.manual-input-group {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.manual-input-group input {
+  flex: 1;
+}
+
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+}
+
+.error-message .icon {
+  font-size: 1.25rem;
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+}
+
+.prescription-result {
+  padding: 1.5rem;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.result-header h2 {
+  font-size: 1.25rem;
+  color: #1f2937;
+  margin: 0;
+}
+
+.prescription-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.info-row .label {
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.info-row .value {
+  color: #1f2937;
+  text-align: right;
+}
+
+.result-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .qr-scanner-page {
+    padding: 1rem;
+  }
+
+  .manual-input-group {
+    flex-direction: column;
+  }
+
+  .result-actions {
+    flex-direction: column;
+  }
+
+  .result-actions button {
+    width: 100%;
+  }
+}
+
+

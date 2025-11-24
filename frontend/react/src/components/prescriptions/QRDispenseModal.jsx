@@ -11,7 +11,7 @@ import { normalizeRfidCode } from '../../utils/formatting'
 import { HiWifi, HiStop, HiCheckCircle } from 'react-icons/hi'
 import './DispenseModal.css'
 
-export default function DispenseModal({ prescription, isOpen, onClose, onSuccess }) {
+export default function QRDispenseModal({ prescription, isOpen, onClose, onSuccess }) {
   const queryClient = useQueryClient()
   const [selectedItem, setSelectedItem] = useState(null)
   const [quantity, setQuantity] = useState(1)
@@ -26,23 +26,17 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
   })
 
   const { data: fullPrescription } = useQuery({
-    queryKey: ['prescription-items', prescription?.id, prescription?.prescription_code],
+    queryKey: ['prescription-items-qr', prescription?.id, prescription?.prescription_code],
     queryFn: async () => {
       if (!prescription) return null
       try {
-        console.log('🔍 DispenseModal - Obteniendo receta:', prescription.prescription_code)
         const response = await api.get(`/prescriptions/${prescription.prescription_code}`)
-        console.log('✅ DispenseModal - Respuesta recibida:', {
-          success: response.data.success,
-          itemsCount: response.data.data?.items?.length || 0,
-          items: response.data.data?.items
-        })
         if (!response.data.success) {
           throw new Error(response.data.error || 'Error al cargar la receta')
         }
         return response.data.data
       } catch (error) {
-        console.error('❌ DispenseModal - Error al obtener receta:', error)
+        console.error('❌ QRDispenseModal - Error al obtener receta:', error)
         return prescription
       }
     },
@@ -60,7 +54,6 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
 
   useEffect(() => {
     const items = fullPrescription?.items || prescription?.items || []
-    console.log('📦 DispenseModal - Items recibidos:', items.length, items)
     setPrescriptionItems(items)
     if (items.length > 0) {
       const pendingItem = items.find(
@@ -78,7 +71,6 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
   const handleRFIDDetected = async (rfidUid) => {
     try {
       setError('')
-      // Normalizar RFID antes de buscar (estandarizado)
       const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid.toUpperCase().trim()
       
       const response = await api.get(`/batches?rfid_uid=${normalizedRfid}`)
@@ -89,15 +81,13 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
         return
       }
 
-      // Buscar batch usando rfid_uid normalizado
       const foundBatch = batches.find(b => {
         const batchRfid = normalizeRfidCode(b.rfid_uid) || b.rfid_uid
         return batchRfid === normalizedRfid
-      }) || batches[0] // Fallback al primero si no encuentra coincidencia exacta
+      }) || batches[0]
       
       const productId = foundBatch.product_id
 
-      // Verificar que el medicamento esté en la receta
       const item = prescriptionItems.find(
         item => {
           if (item.product_id !== productId) return false
@@ -115,10 +105,8 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
       setBatch(foundBatch)
       stopListening()
 
-      // Calcular cantidad máxima
       const remaining = item.quantity_required - (item.quantity_dispensed || 0)
       const maxQuantity = Math.min(remaining, foundBatch.quantity)
-      // Asegurar que quantity sea un número válido
       const currentQty = parseInt(quantity) || 1
       setQuantity(Math.min(currentQty, maxQuantity))
     } catch (err) {
@@ -129,7 +117,6 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
 
   const fulfillMutation = useMutation({
     mutationFn: async ({ prescriptionId, itemId, batchId, qty }) => {
-      // Asegurar que qty sea un número válido
       const quantityValue = parseInt(qty) || 1
       if (quantityValue < 1 || isNaN(quantityValue)) {
         throw new Error('La cantidad debe ser un número mayor a 0')
@@ -140,14 +127,12 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
         batch_id: parseInt(batchId),
         quantity: quantityValue
       })
-      // Usar mensaje del backend si está disponible
       return response.data
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries(['prescriptions'])
-      queryClient.invalidateQueries(['prescription', prescription.id])
-      queryClient.invalidateQueries(['prescription-items'])
-      // Opcional: mostrar mensaje de éxito del backend
+      queryClient.invalidateQueries(['prescription-qr'])
+      queryClient.invalidateQueries(['prescription-items-qr'])
       if (data?.message) {
         console.log('✅', data.message)
       }
@@ -165,7 +150,6 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
       return
     }
 
-    // Validar y convertir quantity a número
     const qtyValue = parseInt(quantity) || 1
     if (qtyValue < 1 || isNaN(qtyValue)) {
       setError('La cantidad debe ser un número mayor a 0')
@@ -211,7 +195,7 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Despachar Receta"
+      title={`Despachar Receta - ${prescription?.prescription_code || ''}`}
       size="lg"
     >
       <div className="dispense-modal">
@@ -222,13 +206,32 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
         )}
 
         <div className="dispense-section">
+          <h4>Información de la Receta</h4>
+          <div className="prescription-summary">
+            <div className="info-row">
+              <span className="label">Paciente:</span>
+              <span className="value">{prescription?.patient_name || 'N/A'}</span>
+            </div>
+            <div className="info-row">
+              <span className="label">Médico:</span>
+              <span className="value">{prescription?.doctor_name || 'N/A'}</span>
+            </div>
+            <div className="info-row">
+              <span className="label">Fecha:</span>
+              <span className="value">
+                {prescription?.prescription_date 
+                  ? new Date(prescription.prescription_date).toLocaleDateString('es-ES')
+                  : 'N/A'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="dispense-section">
           <h4>Items Pendientes</h4>
           {prescriptionItems.length === 0 && (
             <div className="no-items-message">
               <p>No hay items en esta receta</p>
-              {fullPrescription && (
-                <p className="debug-info">Debug: Receta ID {fullPrescription.id}, Items: {fullPrescription.items?.length || 0}</p>
-              )}
             </div>
           )}
           <div className="items-list">
@@ -251,7 +254,7 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
                   <div className="item-quantities">
                     <span>Requerido: {item.quantity_required}</span>
                     <span>Despachado: {item.quantity_dispensed || 0}</span>
-                    <span>Faltan: {remaining}</span>
+                    <span>Faltan: {item.quantity_required - (item.quantity_dispensed || 0)}</span>
                   </div>
                 </div>
                 <Badge variant={getItemStatus(item) === 'partial' ? 'partial' : 'pending'}>
@@ -311,7 +314,6 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
                   value={quantity}
                   onChange={(e) => {
                     const value = e.target.value
-                    // Permitir string vacío temporalmente para mejor UX, pero validar antes de enviar
                     const numValue = value === '' ? '' : (parseInt(value) || 1)
                     setQuantity(numValue)
                   }}
@@ -347,4 +349,5 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
     </Modal>
   )
 }
+
 

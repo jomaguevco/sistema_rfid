@@ -63,7 +63,7 @@ async function verificarSistema() {
           username VARCHAR(100) NOT NULL UNIQUE,
           email VARCHAR(255) NOT NULL UNIQUE,
           password_hash VARCHAR(255) NOT NULL,
-          role ENUM('admin', 'farmaceutico', 'farmaceutico_jefe', 'enfermero', 'supervisor', 'auditor') NOT NULL DEFAULT 'enfermero',
+          role ENUM('admin', 'farmaceutico', 'farmaceutico_jefe', 'enfermero', 'supervisor', 'auditor', 'medico') NOT NULL DEFAULT 'enfermero',
           is_active BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           last_login TIMESTAMP NULL,

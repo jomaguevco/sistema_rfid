@@ -15,7 +15,8 @@ import {
   HiChartBar,
   HiBell,
   HiShieldCheck,
-  HiLogout
+  HiLogout,
+  HiQrcode
 } from 'react-icons/hi'
 import Button from './Button'
 import './Layout.css'
@@ -37,6 +38,11 @@ export default function Layout() {
     { path: '/stock-exit', label: 'Salida Stock', icon: HiArrowUp }
   ]
 
+  // Menú para químicos farmacéuticos y admin (escáner QR)
+  const pharmacistMenuItems = [
+    { path: '/qr-scanner', label: 'Escanear QR', icon: HiQrcode }
+  ]
+
   // Menú adicional solo para Admin
   const adminMenuItems = [
     { path: '/products', label: 'Catálogo Medicamentos', icon: HiCube },
@@ -55,11 +61,15 @@ export default function Layout() {
   const adminItems = hasRole('admin') 
     ? adminMenuItems.filter(item => canAccess(item.path))
     : []
+  const pharmacistItems = (hasRole('farmaceutico') || hasRole('admin'))
+    ? pharmacistMenuItems.filter(item => canAccess(item.path))
+    : []
 
   const getRoleLabel = (role) => {
     const labels = {
       admin: 'Administrador',
-      farmaceutico: 'Químico Farmacéutico'
+      farmaceutico: 'Químico Farmacéutico',
+      medico: 'Médico'
     }
     return labels[role] || role
   }
@@ -89,6 +99,27 @@ export default function Layout() {
               </li>
             )
           })}
+          {pharmacistItems.length > 0 && (
+            <>
+              <li className="sidebar-divider">
+                <span>Despacho</span>
+              </li>
+              {pharmacistItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <li key={item.path}>
+                    <button
+                      className={isActive(item.path) ? 'active' : ''}
+                      onClick={() => navigate(item.path)}
+                    >
+                      <Icon />
+                      <span>{item.label}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </>
+          )}
           {adminItems.length > 0 && (
             <>
               <li className="sidebar-divider">

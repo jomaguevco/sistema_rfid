@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database_medical');
 const { generatePrescriptionQR, generatePrescriptionCode } = require('../utils/qr');
+const { generatePrescriptionImage } = require('../utils/prescriptionImage');
 const { authenticateToken } = require('../middleware/auth');
+const whatsappService = require('../services/whatsappService');
 
 /**
  * POST /api/prescriptions
@@ -11,11 +13,11 @@ const { authenticateToken } = require('../middleware/auth');
  */
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    // Verificar que el usuario no sea químico/farmacéutico
-    if (req.user?.role === 'farmaceutico') {
+    // Verificar permisos: solo admin y médico pueden crear recetas
+    if (req.user?.role !== 'admin' && req.user?.role !== 'medico') {
       return res.status(403).json({
         success: false,
-        error: 'No tienes permiso para crear recetas. Solo los administradores pueden crear recetas.'
+        error: 'No tienes permiso para crear recetas. Solo administradores y médicos pueden crear recetas.'
       });
     }
     
@@ -146,6 +148,7 @@ router.post('/', authenticateToken, async (req, res) => {
         items: prescriptionItems,
         items_count: prescriptionItems.length
       },
+      message: `Receta creada correctamente con código ${prescriptionCode}`,
       qr_code: qrCode,
       prescription_code: prescriptionCode
     });
@@ -156,6 +159,66 @@ router.post('/', authenticateToken, async (req, res) => {
       success: false,
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+/**
+ * GET /api/prescriptions/qr/:code
+ * Buscar receta por código QR (para escáner de químico farmacéutico)
+ */
+router.get('/qr/:code', authenticateToken, async (req, res) => {
+  try {
+    // Verificar que el usuario tenga permiso (farmaceutico o admin)
+    if (req.user?.role !== 'farmaceutico' && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'No tienes permiso para escanear recetas. Solo químicos farmacéuticos y administradores pueden escanear recetas.'
+      });
+    }
+
+    const { code } = req.params;
+    
+    if (!code || code.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Código de receta requerido'
+      });
+    }
+    
+    const prescription = await db.getPrescriptionByCode(code.trim());
+
+    if (!prescription) {
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada'
+      });
+    }
+
+    // Obtener items de la receta
+    let items = [];
+    try {
+      items = await db.getPrescriptionItems(prescription.id);
+    } catch (itemsError) {
+      console.error('⚠️ Error al obtener items de receta:', itemsError.message);
+      items = [];
+    }
+
+    const responseData = {
+      ...prescription,
+      items: items || [],
+      items_count: items ? items.length : 0
+    };
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+  } catch (error) {
+    console.error('✗ Error al buscar receta por QR:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Error al buscar receta'
     });
   }
 });
@@ -186,12 +249,33 @@ router.get('/:code', authenticateToken, async (req, res) => {
       });
     }
 
+    // Si el usuario es médico, solo puede ver sus propias recetas
+    if (req.user?.role === 'medico' && prescription.created_by !== req.userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'No tienes permiso para ver esta receta. Solo puedes ver tus propias recetas.'
+      });
+    }
+
     console.log('✅ Receta encontrada, ID:', prescription.id, 'Tipo:', typeof prescription.id);
     console.log('📋 Datos de receta:', {
       id: prescription.id,
       prescription_code: prescription.prescription_code,
       patient_name: prescription.patient_name
     });
+    
+    // Obtener teléfono del paciente si tiene patient_id
+    let patientPhone = null;
+    if (prescription.patient_id) {
+      try {
+        const patient = await db.getPatientById(prescription.patient_id);
+        if (patient && patient.phone) {
+          patientPhone = patient.phone;
+        }
+      } catch (patientError) {
+        console.warn('⚠️ No se pudo obtener teléfono del paciente:', patientError.message);
+      }
+    }
     
     // Obtener items de la receta con manejo de errores
     let items = [];
@@ -217,7 +301,8 @@ router.get('/:code', authenticateToken, async (req, res) => {
     const responseData = {
       ...prescription,
       items: items || [],
-      items_count: items ? items.length : 0
+      items_count: items ? items.length : 0,
+      patient_phone: patientPhone
     };
     
     console.log('📤 Enviando respuesta con', responseData.items_count, 'items');
@@ -268,15 +353,34 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { prescription_item_id, batch_id, quantity } = req.body;
 
-    if (!prescription_item_id || !batch_id || !quantity || quantity <= 0) {
+    // Validar tipos y valores
+    const prescriptionItemId = parseInt(prescription_item_id);
+    const batchId = parseInt(batch_id);
+    const quantityValue = parseInt(quantity);
+
+    if (!prescription_item_id || !batch_id || !quantity) {
       return res.status(400).json({
         success: false,
         error: 'Faltan campos requeridos: prescription_item_id, batch_id, quantity'
       });
     }
 
+    if (isNaN(prescriptionItemId) || isNaN(batchId) || isNaN(quantityValue)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Los campos prescription_item_id, batch_id y quantity deben ser números válidos'
+      });
+    }
+
+    if (quantityValue <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'La cantidad debe ser un número mayor a 0'
+      });
+    }
+
     // Verificar que el batch existe y tiene stock
-    const batch = await db.getBatchById(batch_id);
+    const batch = await db.getBatchById(batchId);
     if (!batch) {
       return res.status(404).json({
         success: false,
@@ -284,16 +388,16 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
-    if (batch.quantity < quantity) {
+    if (batch.quantity < quantityValue) {
       return res.status(400).json({
         success: false,
-        error: `Stock insuficiente. Disponible: ${batch.quantity}, Requerido: ${quantity}`
+        error: `Stock insuficiente. Disponible: ${batch.quantity} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
       });
     }
 
     // Verificar que el item pertenece a la receta
     const items = await db.getPrescriptionItems(parseInt(id));
-    const item = items.find(i => i.id === parseInt(prescription_item_id));
+    const item = items.find(i => i.id === prescriptionItemId);
     
     if (!item) {
       return res.status(404).json({
@@ -302,25 +406,28 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
-    // Verificar que no se exceda la cantidad requerida
-    const totalDispensed = item.quantity_dispensed + quantity;
+    // Verificar que no se exceda la cantidad requerida (usar valores validados)
+    const totalDispensed = (item.quantity_dispensed || 0) + quantityValue;
     if (totalDispensed > item.quantity_required) {
       return res.status(400).json({
         success: false,
-        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required}, Despachado: ${item.quantity_dispensed}, Intento: ${quantity}`
+        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${item.quantity_dispensed || 0} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
       });
     }
 
-    // Despachar item
-    await db.fulfillPrescriptionItem(parseInt(id), parseInt(prescription_item_id), batch_id, quantity, req.userId);
+    // Despachar item (usar valores validados)
+    await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, quantityValue, req.userId);
 
-    // Retirar stock del lote
-    await db.decrementBatchStock(batch.rfid_uid, quantity, null);
+    // Retirar stock del lote (usar valores validados)
+    await db.decrementBatchStock(batch.rfid_uid, quantityValue, null);
 
     // Obtener receta actualizada
     const prescription = await db.getPrescriptionById(parseInt(id));
     const updatedItems = await db.getPrescriptionItems(parseInt(id));
 
+    // Calcular stock restante del lote
+    const remainingStock = batch.quantity - quantityValue;
+    
     res.json({
       success: true,
       data: {
@@ -328,13 +435,105 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
         items: updatedItems,
         items_count: updatedItems.length
       },
-      message: 'Item despachado correctamente'
+      message: `Se despacharon ${quantityValue} unidades individuales del medicamento "${item.product_name || 'N/A'}". Stock restante del lote: ${remainingStock} unidades individuales.`,
+      quantity_dispensed: quantityValue,
+      remaining_stock: remainingStock
     });
   } catch (error) {
     console.error('Error al despachar item:', error);
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/prescriptions/:id/send-whatsapp
+ * Enviar receta a WhatsApp
+ */
+router.post('/:id/send-whatsapp', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { phone_number } = req.body;
+
+    if (!phone_number) {
+      return res.status(400).json({
+        success: false,
+        error: 'El número de teléfono es requerido'
+      });
+    }
+
+    // Obtener receta completa
+    const prescription = await db.getPrescriptionById(parseInt(id));
+    if (!prescription) {
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada'
+      });
+    }
+
+    // Obtener items de la receta
+    const items = await db.getPrescriptionItems(parseInt(id));
+
+    // Preparar datos de la receta
+    const prescriptionData = {
+      ...prescription,
+      items: items
+    };
+
+    // Generar imagen de la receta
+    let prescriptionImageBuffer = null;
+    try {
+      prescriptionImageBuffer = await generatePrescriptionImage(prescriptionData);
+      console.log('✅ Imagen de receta generada correctamente');
+    } catch (imageError) {
+      console.error('⚠️ Error al generar imagen de receta:', imageError.message);
+      // Continuar sin imagen, solo enviar QR
+    }
+
+    // Obtener imagen QR (ya está en base64 en prescription.qr_code)
+    let qrImageBuffer = null;
+    if (prescription.qr_code) {
+      try {
+        // Convertir base64 a buffer
+        const base64Data = prescription.qr_code.startsWith('data:image') 
+          ? prescription.qr_code.split(',')[1] 
+          : prescription.qr_code;
+        qrImageBuffer = Buffer.from(base64Data, 'base64');
+      } catch (qrError) {
+        console.error('⚠️ Error al procesar QR:', qrError.message);
+      }
+    }
+
+    // Enviar receta a WhatsApp (imagen de receta + QR)
+    const result = await whatsappService.sendPrescription(
+      phone_number,
+      prescriptionData,
+      prescriptionImageBuffer,
+      qrImageBuffer
+    );
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message || 'Receta enviada correctamente a WhatsApp',
+        data: {
+          prescription_code: prescription.prescription_code,
+          phone_number: phone_number
+        }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Error al enviar receta a WhatsApp'
+      });
+    }
+  } catch (error) {
+    console.error('Error al enviar receta a WhatsApp:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Error al enviar receta a WhatsApp'
     });
   }
 });
@@ -421,6 +620,12 @@ router.get('/', authenticateToken, async (req, res) => {
       limit: req.query.limit || 50,
       offset: req.query.offset || 0
     };
+
+    // Si el usuario es médico, solo mostrar sus propias recetas
+    if (req.user?.role === 'medico') {
+      filters.created_by = req.userId;
+    }
+    // Si es admin o farmaceutico, mostrar todas (sin filtro created_by)
 
     const prescriptions = await db.getAllPrescriptions(filters);
 

@@ -155,7 +155,9 @@ export default function Products() {
   }
 
   const handleViewStockDetail = (row) => {
-    const rfid = row.rfid_code || row.batch_rfid_uid || row.rfid_uid
+    // Usar rfid_uid como campo principal (estandarizado)
+    // rfid_code es solo para display formateado
+    const rfid = row.rfid_uid || row.rfid_code || null
     if (rfid && rfid !== '-') {
       setSelectedRfidCode(rfid)
       setShowStockDetail(true)

@@ -16,14 +16,27 @@ const dbConfig = {
   queueLimit: 0
 };
 
-// Crear pool de conexiones
-const pool = mysql.createPool(dbConfig);
+// Crear pool de conexiones con configuración mejorada para reconexión
+const pool = mysql.createPool({
+  ...dbConfig,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0
+});
 
 // Configurar charset UTF-8 en todas las conexiones
 pool.on('connection', (connection) => {
   connection.query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
   connection.query("SET CHARACTER SET utf8mb4");
   connection.query("SET character_set_connection=utf8mb4");
+});
+
+// Manejar errores de conexión del pool
+pool.on('error', (err) => {
+  if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ECONNRESET') {
+    console.error('⚠️  [DB] Conexión perdida, el pool se reconectará automáticamente');
+  } else {
+    console.error('✗ [DB] Error en pool:', err.code || 'Desconocido');
+  }
 });
 
 // Probar conexión
@@ -33,8 +46,39 @@ pool.getConnection()
     connection.release();
   })
   .catch(err => {
-    console.error('✗ Error al conectar con MySQL:', err.message);
+    console.error('✗ [DB] Error al conectar:', err.code || 'Desconocido', '-', err.message);
   });
+
+// ==================== FUNCIONES HELPER ====================
+
+/**
+ * Validar que una cantidad sea válida (número entero positivo mayor a 0)
+ * @param {any} quantity - Cantidad a validar
+ * @param {string} fieldName - Nombre del campo para mensajes de error (opcional)
+ * @returns {number} - Cantidad validada como número entero
+ * @throws {Error} - Si la cantidad no es válida
+ */
+function validateQuantity(quantity, fieldName = 'quantity') {
+  // Convertir a número si es string
+  const numValue = typeof quantity === 'string' ? parseInt(quantity, 10) : Number(quantity);
+  
+  // Validar que sea un número válido
+  if (isNaN(numValue) || !Number.isFinite(numValue)) {
+    throw new Error(`La ${fieldName} debe ser un número válido`);
+  }
+  
+  // Validar que sea entero
+  if (!Number.isInteger(numValue)) {
+    throw new Error(`La ${fieldName} debe ser un número entero (sin decimales)`);
+  }
+  
+  // Validar que sea positivo
+  if (numValue <= 0) {
+    throw new Error(`La ${fieldName} debe ser un número positivo mayor a 0`);
+  }
+  
+  return numValue;
+}
 
 // ==================== FUNCIONES DE PRODUCTOS ====================
 
@@ -535,6 +579,7 @@ async function getBatchByRfidUid(rfidUid) {
     
     const [rows] = await pool.execute(
       `SELECT DISTINCT pb.*, p.*, pc.name as category_name,
+              p.name as product_name,  -- Asegurar campo product_name
               (pb.expiry_date < CURDATE()) as is_expired,
               DATEDIFF(pb.expiry_date, CURDATE()) as days_to_expiry
        FROM product_batches pb
@@ -548,7 +593,18 @@ async function getBatchByRfidUid(rfidUid) {
        LIMIT 1`,
       [normalizedRfid, rfidUid, normalizedRfid, rfidUid]
     );
-    return rows[0] || null;
+    
+    if (!rows[0]) {
+      return null;
+    }
+    
+    // Asegurar que todos los campos esperados estén presentes
+    const batch = rows[0];
+    return {
+      ...batch,
+      product_name: batch.product_name || batch.name || 'Producto desconocido',
+      name: batch.name || batch.product_name || 'Producto desconocido'
+    };
   } catch (error) {
     throw error;
   }
@@ -570,10 +626,12 @@ async function getBatchesByRfidUid(rfidUid) {
       `SELECT DISTINCT pb.*, 
               p.id as product_id,
               p.name as product_name,
+              p.name as name,  -- Asegurar campo 'name' para compatibilidad
               p.active_ingredient,
               p.concentration,
               p.presentation,
               p.product_type,
+              p.units_per_package,
               pc.name as category_name,
               (pb.expiry_date < CURDATE()) as is_expired,
               DATEDIFF(pb.expiry_date, CURDATE()) as days_to_expiry,
@@ -593,7 +651,13 @@ async function getBatchesByRfidUid(rfidUid) {
        ORDER BY pb.expiry_date ASC, p.name ASC`,
       [normalizedRfid, rfidUid, normalizedRfid, rfidUid] // Buscar en ambas tablas
     );
-    return rows;
+    
+    // Asegurar que todos los campos esperados estén presentes
+    return rows.map(row => ({
+      ...row,
+      product_name: row.product_name || row.name || 'Producto desconocido',
+      name: row.name || row.product_name || 'Producto desconocido'
+    }));
   } catch (error) {
     console.error('✗ Error en getBatchesByRfidUid:', error);
     throw error;
@@ -601,14 +665,33 @@ async function getBatchesByRfidUid(rfidUid) {
 }
 
 /**
+ * Verificar si un RFID tiene stock activo (quantity > 0) en algún lote
+ * @param {string} rfidUid - UID del RFID a verificar
+ * @returns {Promise<boolean>} - true si tiene stock activo, false si no
+ */
+async function checkRfidHasActiveStock(rfidUid) {
+  try {
+    const batches = await getBatchesByRfidUid(rfidUid);
+    return batches.some(batch => batch.quantity > 0);
+  } catch (error) {
+    console.error('✗ Error al verificar stock activo de RFID:', error);
+    // En caso de error, retornar false para permitir la operación (evitar bloqueos)
+    return false;
+  }
+}
+
+/**
  * Crear un nuevo lote o actualizar uno existente
  * Si ya existe un lote con el mismo product_id, lot_number y expiry_date,
  * se actualiza la cantidad sumando la nueva cantidad
- * Valida que el RFID no esté duplicado
+ * Valida que el RFID no esté duplicado y que no tenga stock activo
  */
 async function createBatch(batchData) {
   try {
     const { product_id, lot_number, expiry_date, quantity, rfid_uid, entry_date } = batchData;
+    
+    // Validar cantidad usando helper
+    const validatedQuantity = validateQuantity(quantity, 'cantidad');
 
     // Buscar si ya existe un lote con el mismo product_id, lot_number y expiry_date
     const [existingBatches] = await pool.execute(
@@ -617,12 +700,35 @@ async function createBatch(batchData) {
       [product_id, lot_number, expiry_date]
     );
     
-    // Validar que el RFID no esté duplicado en OTRO lote (si se proporciona)
-    // Permitir múltiples RFID del mismo lote
+    // Validar que el RFID no esté duplicado y que no tenga stock activo (si se proporciona)
     if (rfid_uid) {
       const normalizedRfid = normalizeRfidCode(rfid_uid) || rfid_uid.toUpperCase().trim();
       
-      // Verificar si el RFID ya está en batch_rfid_tags de otro lote
+      // PRIMERO: Verificar si el RFID tiene stock activo (quantity > 0)
+      const hasActiveStock = await checkRfidHasActiveStock(normalizedRfid);
+      
+      if (hasActiveStock) {
+        // Obtener información del lote con stock activo para el mensaje de error
+        const batchesWithStock = await getBatchesByRfidUid(normalizedRfid);
+        const activeBatch = batchesWithStock.find(b => b.quantity > 0);
+        
+        if (activeBatch) {
+          const error = new Error(
+            `Este código RFID ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${activeBatch.product_name || 'N/A'}"). ` +
+            `Solo se puede ingresar nuevamente cuando el stock llegue a 0.`
+          );
+          error.code = 'RFID_HAS_ACTIVE_STOCK';
+          error.batch_info = {
+            product_name: activeBatch.product_name,
+            quantity: activeBatch.quantity,
+            lot_number: activeBatch.lot_number,
+            expiry_date: activeBatch.expiry_date
+          };
+          throw error;
+        }
+      }
+      
+      // SEGUNDO: Verificar si el RFID ya está en batch_rfid_tags de otro lote
       const [existingRfidTags] = await pool.execute(
         'SELECT batch_id FROM batch_rfid_tags WHERE rfid_uid = ? LIMIT 1',
         [normalizedRfid]
@@ -631,30 +737,71 @@ async function createBatch(batchData) {
       if (existingRfidTags.length > 0) {
         const existingBatchId = existingRfidTags[0].batch_id;
         
+        // Obtener información del lote existente para el mensaje de error
+        const [batchInfo] = await pool.execute(
+          `SELECT pb.product_id, pb.lot_number, pb.expiry_date, p.name as product_name 
+           FROM product_batches pb 
+           LEFT JOIN products p ON pb.product_id = p.id 
+           WHERE pb.id = ?`,
+          [existingBatchId]
+        );
+        
         // Si estamos actualizando un lote existente, verificar que el RFID no pertenezca a otro lote
         if (existingBatches.length > 0) {
           // Si el RFID pertenece a un lote diferente, es error
           if (existingBatchId !== existingBatches[0].id) {
-            const error = new Error('Este código RFID ya está registrado en otro lote');
+            const existingProductName = batchInfo[0]?.product_name || 'Producto desconocido';
+            const existingProductId = batchInfo[0]?.product_id;
+            const error = new Error(
+              `Este código RFID ya está registrado en otro lote del producto "${existingProductName}" (ID: ${existingProductId}). ` +
+              `No puedes usar el mismo IDP para otro producto.`
+            );
             error.code = 'RFID_DUPLICATE';
+            error.batch_info = {
+              product_id: existingProductId,
+              product_name: existingProductName,
+              lot_number: batchInfo[0]?.lot_number,
+              expiry_date: batchInfo[0]?.expiry_date
+            };
             throw error;
           }
           // Si pertenece al mismo lote, está bien (permitir múltiples RFID del mismo lote)
         } else {
           // Si estamos creando un nuevo lote, verificar que el RFID no pertenezca a ningún otro lote
-          const [batchInfo] = await pool.execute(
-            'SELECT product_id, lot_number, expiry_date FROM product_batches WHERE id = ?',
-            [existingBatchId]
-          );
-          
           if (batchInfo.length > 0) {
             const existingBatch = batchInfo[0];
-            // Solo es error si es de un lote diferente (diferente producto, lote o fecha)
-            if (existingBatch.product_id !== product_id || 
-                existingBatch.lot_number !== lot_number || 
-                new Date(existingBatch.expiry_date).getTime() !== new Date(expiry_date).getTime()) {
-              const error = new Error('Este código RFID ya está registrado en otro lote');
+            const existingProductName = existingBatch.product_name || 'Producto desconocido';
+            
+            // Verificar si es de un producto diferente
+            if (existingBatch.product_id !== product_id) {
+              const error = new Error(
+                `⚠️ IDP DUPLICADO: Este código RFID ya está registrado con el producto "${existingProductName}" (ID: ${existingBatch.product_id}). ` +
+                `No puedes usar el mismo IDP para otro producto.`
+              );
               error.code = 'RFID_DUPLICATE';
+              error.batch_info = {
+                product_id: existingBatch.product_id,
+                product_name: existingProductName,
+                lot_number: existingBatch.lot_number,
+                expiry_date: existingBatch.expiry_date
+              };
+              throw error;
+            }
+            
+            // Solo es error si es de un lote diferente (mismo producto pero diferente lote o fecha)
+            if (existingBatch.lot_number !== lot_number || 
+                new Date(existingBatch.expiry_date).getTime() !== new Date(expiry_date).getTime()) {
+              const error = new Error(
+                `Este código RFID ya está registrado en otro lote del mismo producto "${existingProductName}" ` +
+                `(Lote: ${existingBatch.lot_number}, Vence: ${existingBatch.expiry_date}).`
+              );
+              error.code = 'RFID_DUPLICATE';
+              error.batch_info = {
+                product_id: existingBatch.product_id,
+                product_name: existingProductName,
+                lot_number: existingBatch.lot_number,
+                expiry_date: existingBatch.expiry_date
+              };
               throw error;
             }
           }
@@ -663,9 +810,42 @@ async function createBatch(batchData) {
     }
 
     if (existingBatches.length > 0) {
-      // Lote existente encontrado, actualizar cantidad sumando la nueva
+      // Lote existente encontrado, verificar que no tenga stock activo si se está agregando un RFID nuevo
       const existingBatch = existingBatches[0];
-      const newQuantity = (existingBatch.quantity || 0) + (quantity || 0);
+      
+      // Si se está agregando un RFID nuevo a un lote existente, verificar que el RFID no tenga stock activo
+      if (rfid_uid && !existingBatch.rfid_uid) {
+        const normalizedRfid = normalizeRfidCode(rfid_uid) || rfid_uid.toUpperCase().trim();
+        const hasActiveStock = await checkRfidHasActiveStock(normalizedRfid);
+        
+        if (hasActiveStock) {
+          const batchesWithStock = await getBatchesByRfidUid(normalizedRfid);
+          const activeBatch = batchesWithStock.find(b => b.quantity > 0);
+          
+          if (activeBatch) {
+            const error = new Error(
+              `Este código RFID ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${activeBatch.product_name || 'N/A'}"). ` +
+              `Solo se puede ingresar nuevamente cuando el stock llegue a 0.`
+            );
+            error.code = 'RFID_HAS_ACTIVE_STOCK';
+            error.batch_info = {
+              product_name: activeBatch.product_name,
+              quantity: activeBatch.quantity,
+              lot_number: activeBatch.lot_number,
+              expiry_date: activeBatch.expiry_date
+            };
+            throw error;
+          }
+        }
+      }
+      
+      // Actualizar cantidad sumando la nueva (usar cantidad validada)
+      const newQuantity = (existingBatch.quantity || 0) + validatedQuantity;
+      
+      // Validar que la cantidad no sea negativa
+      if (newQuantity < 0) {
+        throw new Error(`La cantidad resultante no puede ser negativa. Stock actual: ${existingBatch.quantity}, Intento de agregar: ${validatedQuantity}`);
+      }
       
       await pool.execute(
         'UPDATE product_batches SET quantity = ? WHERE id = ?',
@@ -699,7 +879,7 @@ async function createBatch(batchData) {
         `INSERT INTO product_batches 
          (product_id, lot_number, expiry_date, quantity, rfid_uid, entry_date)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [product_id, lot_number, expiry_date, quantity || 0, normalizedRfid, entry_date || new Date()]
+        [product_id, lot_number, expiry_date, validatedQuantity, normalizedRfid, entry_date || new Date()]
       );
       
       const batchId = result.insertId;
@@ -724,6 +904,19 @@ async function createBatch(batchData) {
  */
 async function updateBatchQuantity(batchId, newQuantity) {
   try {
+    // Validar que el batch existe
+    const batch = await getBatchById(batchId);
+    if (!batch) {
+      const error = new Error('Lote no encontrado');
+      error.code = 'BATCH_NOT_FOUND';
+      throw error;
+    }
+
+    // Validar que la cantidad no sea negativa (permitir 0)
+    if (newQuantity < 0) {
+      throw new Error('La cantidad no puede ser negativa. El valor mínimo permitido es 0.');
+    }
+
     await pool.execute(
       'UPDATE product_batches SET quantity = ? WHERE id = ?',
       [newQuantity, batchId]
@@ -778,12 +971,20 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null) {
       throw new Error('No se puede retirar un producto vencido');
     }
 
-    if (batch.quantity < quantity) {
-      throw new Error(`Stock insuficiente. Disponible: ${batch.quantity}, Requerido: ${quantity}`);
+    // Validar cantidad usando helper
+    const validatedQuantity = validateQuantity(quantity, 'cantidad a retirar');
+
+    if (batch.quantity < validatedQuantity) {
+      throw new Error(`Stock insuficiente. Disponible: ${batch.quantity} unidades, Requerido: ${validatedQuantity} unidades`);
     }
 
     const previousQuantity = batch.quantity;
-    const newQuantity = previousQuantity - quantity;
+    const newQuantity = previousQuantity - validatedQuantity;
+
+    // Validar que la cantidad resultante no sea negativa
+    if (newQuantity < 0) {
+      throw new Error(`Stock insuficiente. Disponible: ${batch.quantity} unidades, Requerido: ${validatedQuantity} unidades. La cantidad resultante no puede ser negativa.`);
+    }
 
     // Actualizar cantidad del lote
     await pool.execute(
@@ -796,7 +997,7 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null) {
       `INSERT INTO stock_history 
        (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
        VALUES (?, ?, ?, ?, ?, 'remove', CURDATE(), ?)`,
-      [batch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Retiro de ${quantity} unidades`]
+      [batch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Retiro de ${validatedQuantity} unidades`]
     );
 
     // Verificar si hay otros lotes más antiguos (FIFO)
@@ -833,8 +1034,16 @@ async function incrementBatchStock(rfidUid, quantity, areaId = null) {
       throw new Error('Lote no encontrado para el UID RFID proporcionado');
     }
 
+    // Validar cantidad usando helper
+    const validatedQuantity = validateQuantity(quantity, 'cantidad a ingresar');
+
     const previousQuantity = batch.quantity;
-    const newQuantity = previousQuantity + quantity;
+    const newQuantity = previousQuantity + validatedQuantity;
+
+    // Validar que la cantidad resultante no sea negativa (aunque esto no debería pasar con números positivos)
+    if (newQuantity < 0) {
+      throw new Error(`Error: La cantidad resultante no puede ser negativa. Stock actual: ${previousQuantity}, Intento de agregar: ${quantity}`);
+    }
 
     // Actualizar cantidad del lote
     await pool.execute(
@@ -847,7 +1056,7 @@ async function incrementBatchStock(rfidUid, quantity, areaId = null) {
       `INSERT INTO stock_history 
        (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
        VALUES (?, ?, ?, ?, ?, 'add', CURDATE(), ?)`,
-      [batch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Ingreso de ${quantity} unidades`]
+      [batch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Ingreso de ${validatedQuantity} unidades`]
     );
 
     const updatedBatch = await getBatchById(batch.id);
@@ -2901,6 +3110,11 @@ async function getAllPrescriptions(filters = {}) {
       params.push(filters.date_to);
     }
     
+    if (filters.created_by) {
+      query += ' AND p.created_by = ?';
+      params.push(filters.created_by);
+    }
+    
     query += ' ORDER BY p.created_at DESC';
     
     if (filters.limit) {
@@ -3212,6 +3426,7 @@ module.exports = {
   getBatchById,
   getBatchByRfidUid,
   getBatchesByRfidUid,
+  checkRfidHasActiveStock,
   createBatch,
   updateBatchQuantity,
   deleteBatch,

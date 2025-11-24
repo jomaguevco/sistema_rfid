@@ -11,7 +11,7 @@ const { paginate, createPaginatedResponse } = require('../middleware/pagination'
  */
 router.get('/', paginate, async (req, res) => {
   try {
-    console.log('📦 GET /api/products - Usuario:', req.user?.username || 'No autenticado');
+    // Log silencioso - solo para debugging si es necesario
     const filters = {
       product_type: req.query.product_type,
       category_id: req.query.category_id ? parseInt(req.query.category_id) : null,
@@ -28,7 +28,7 @@ router.get('/', paginate, async (req, res) => {
     };
     
     const { products, total } = await db.getAllProductsPaginated(filters);
-    console.log(`✅ Productos encontrados: ${products.length} de ${total} totales`);
+    // Log silencioso - solo mostrar en caso de error
     
     res.json(createPaginatedResponse(products, total, req.pagination));
   } catch (error) {
@@ -48,7 +48,7 @@ router.get('/', paginate, async (req, res) => {
  */
 router.get('/catalog', paginate, async (req, res) => {
   try {
-    console.log('📚 GET /api/products/catalog - Usuario:', req.user?.username || 'No autenticado');
+    // Log silencioso - solo para debugging si es necesario
     const filters = {
       product_type: req.query.product_type,
       category_id: req.query.category_id ? parseInt(req.query.category_id) : null,
@@ -69,7 +69,7 @@ router.get('/catalog', paginate, async (req, res) => {
     // Luego obtener productos paginados
     const products = await db.getAllProducts(filters);
     
-    console.log(`✅ Productos encontrados en catálogo: ${products.length} de ${total} totales`);
+    // Log silencioso - solo mostrar en caso de error
     
     res.json(createPaginatedResponse(products, total, req.pagination));
   } catch (error) {

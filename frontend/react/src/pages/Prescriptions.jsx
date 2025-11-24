@@ -166,12 +166,21 @@ export default function Prescriptions() {
   const cancelMutation = useMutation({
     mutationFn: async (id) => {
       const response = await api.put(`/prescriptions/${id}`, { status: 'cancelled' })
+      // Usar mensaje del backend si está disponible
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries(['prescriptions'])
+      queryClient.invalidateQueries(['prescription'])
       setShowCancel(false)
       setSelectedPrescription(null)
+      // Opcional: mostrar mensaje de éxito del backend
+      if (data?.message) {
+        console.log('✅', data.message)
+      }
+    },
+    onError: (error) => {
+      console.error('❌ Error al cancelar receta:', error.response?.data?.error || error.message)
     }
   })
 

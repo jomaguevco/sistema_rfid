@@ -282,7 +282,12 @@ export default function StockDetailModal({ rfidCode, isOpen, onClose }) {
 
   // Calcular estadísticas basadas en lotes agrupados (no en batches individuales)
   const uniqueLotes = Object.values(groupedBatches)
-  const totalStock = uniqueLotes.reduce((sum, lote) => sum + (lote.total_quantity || 0), 0)
+  
+  // IMPORTANTE: Sumar TODAS las cantidades de TODOS los lotes del producto
+  // No solo los lotes únicos agrupados, sino todos los batches individuales
+  // Esto asegura que el total coincida con el cálculo del backend
+  const totalStock = batches ? batches.reduce((sum, batch) => sum + (parseInt(batch.quantity) || 0), 0) : 0
+  
   const validBatches = uniqueLotes.filter(l => !l.is_expired && l.total_quantity > 0)
   const expiredBatches = uniqueLotes.filter(l => l.is_expired && l.total_quantity > 0)
   const expiringSoonBatches = uniqueLotes.filter(l => 

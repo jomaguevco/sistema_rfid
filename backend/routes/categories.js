@@ -9,9 +9,9 @@ const { authenticateToken } = require('../middleware/auth');
  */
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    console.log('📁 GET /api/categories - Usuario:', req.user?.username || 'No autenticado');
+    // Log silencioso - solo para debugging si es necesario
     const categories = await db.getAllCategories();
-    console.log(`✅ Categorías encontradas: ${categories.length}`);
+    // Log silencioso - solo mostrar en caso de error
     res.json({
       success: true,
       data: categories
