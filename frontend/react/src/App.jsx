@@ -22,6 +22,7 @@ import Reports from './pages/Reports'
 import Alerts from './pages/Alerts'
 import ProtectedRoute from './components/common/ProtectedRoute'
 import Layout from './components/common/Layout'
+import DefaultRedirect from './components/common/DefaultRedirect'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,7 +50,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
-                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route index element={<DefaultRedirect />} />
                   <Route path="dashboard" element={<Dashboard />} />
                   <Route path="products" element={<Products />} />
                   <Route path="stock" element={<Stock />} />
@@ -67,7 +68,7 @@ function App() {
                   <Route path="pharmacists" element={<Pharmacists />} />
                   <Route path="reports" element={<Reports />} />
                   <Route path="alerts" element={<Alerts />} />
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="*" element={<DefaultRedirect />} />
                 </Route>
               </Routes>
             </Router>

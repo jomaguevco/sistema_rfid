@@ -24,7 +24,21 @@ import './Layout.css'
 export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, logout, hasRole, canAccess } = useAuth()
+  const { user, logout, hasRole, canAccess, loading } = useAuth()
+
+  // Si está cargando, mostrar loading
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div>Cargando...</div>
+      </div>
+    )
+  }
+
+  // Si no hay usuario, el ProtectedRoute debería haber redirigido, pero por seguridad retornar null
+  if (!user) {
+    return null
+  }
 
   const isActive = (path) => location.pathname === path
 
@@ -56,12 +70,12 @@ export default function Layout() {
     { path: '/alerts', label: 'Alertas', icon: HiBell }
   ]
 
-  // Filtrar items según permisos
-  const menuItems = baseMenuItems.filter(item => canAccess(item.path))
-  const adminItems = hasRole('admin') 
+  // Filtrar items según permisos (solo si user existe)
+  const menuItems = user ? baseMenuItems.filter(item => canAccess(item.path)) : []
+  const adminItems = user && hasRole('admin') 
     ? adminMenuItems.filter(item => canAccess(item.path))
     : []
-  const pharmacistItems = (hasRole('farmaceutico') || hasRole('admin'))
+  const pharmacistItems = user && (hasRole('farmaceutico') || hasRole('admin'))
     ? pharmacistMenuItems.filter(item => canAccess(item.path))
     : []
 

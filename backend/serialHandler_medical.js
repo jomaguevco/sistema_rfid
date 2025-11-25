@@ -211,8 +211,8 @@ async function initSerial() {
       // Buscar JSONs en el buffer - método mejorado
       const foundJsons = [];
       
-      // MÉTODO 1: Buscar JSONs completos con regex
-      const jsonPattern = /\{"action":"[^"]+","uid":"[A-F0-9]+"\}/gi;
+      // MÉTODO 1: Buscar JSONs completos con regex (acepta mayúsculas y minúsculas)
+      const jsonPattern = /\{"action":"[^"]+","uid":"[A-Fa-f0-9]+"\}/gi;
       let match;
       while ((match = jsonPattern.exec(messageBuffer)) !== null) {
         foundJsons.push({
@@ -221,45 +221,89 @@ async function initSerial() {
         });
       }
       
+      // Debug: mostrar si encontramos JSONs potenciales
+      if (messageBuffer.includes('{"action"') || messageBuffer.includes('"uid"')) {
+        const jsonStartIdx = messageBuffer.indexOf('{"action"');
+        if (jsonStartIdx !== -1) {
+          const potentialJson = messageBuffer.substring(jsonStartIdx, Math.min(jsonStartIdx + 100, messageBuffer.length));
+          console.log('🔍 [DEBUG] JSON potencial encontrado en buffer:', potentialJson.substring(0, 80));
+        }
+      }
+      
       // MÉTODO 2: Si no encontramos JSONs completos, buscar JSONs fragmentados
       if (foundJsons.length === 0) {
-        // Buscar inicio de JSON
+        // Buscar inicio de JSON (buscar también con espacios o saltos de línea)
         let jsonStart = messageBuffer.indexOf('{"action"');
+        if (jsonStart === -1) {
+          jsonStart = messageBuffer.indexOf('{\"action\"');
+        }
+        if (jsonStart === -1) {
+          jsonStart = messageBuffer.indexOf('{\n"action"');
+        }
+        if (jsonStart === -1) {
+          jsonStart = messageBuffer.indexOf('{\r\n"action"');
+        }
         
         // Si encontramos el inicio, buscar el final
         while (jsonStart !== -1) {
           // Buscar el cierre de llave después del inicio
-          const jsonEnd = messageBuffer.indexOf('}', jsonStart);
+          let jsonEnd = messageBuffer.indexOf('}', jsonStart);
           
-          if (jsonEnd !== -1) {
-            // Extraer el JSON potencial
+          // Si no encontramos }, buscar \r\n o \n como delimitador
+          if (jsonEnd === -1) {
+            const newlineAfterJson = messageBuffer.indexOf('\r\n', jsonStart);
+            const newlineAfterJson2 = messageBuffer.indexOf('\n', jsonStart);
+            if (newlineAfterJson !== -1 && (jsonEnd === -1 || newlineAfterJson < jsonEnd)) {
+              jsonEnd = newlineAfterJson - 1;
+            } else if (newlineAfterJson2 !== -1 && (jsonEnd === -1 || newlineAfterJson2 < jsonEnd)) {
+              jsonEnd = newlineAfterJson2 - 1;
+            }
+          }
+          
+          if (jsonEnd !== -1 && jsonEnd > jsonStart) {
+            // Extraer el JSON potencial (incluir el })
             const potentialJson = messageBuffer.substring(jsonStart, jsonEnd + 1);
             
+            // Limpiar el JSON de espacios y saltos de línea
+            const cleanedJson = potentialJson.replace(/[\r\n]/g, '').trim();
+            
             // Verificar que tenga el formato básico correcto
-            if (potentialJson.includes('"action"') && potentialJson.includes('"uid"')) {
+            if (cleanedJson.includes('"action"') && cleanedJson.includes('"uid"')) {
               try {
                 // Intentar parsear para verificar que sea JSON válido
-                const testParse = JSON.parse(potentialJson);
+                const testParse = JSON.parse(cleanedJson);
                 
                 // Verificar que tenga los campos requeridos
                 if (testParse.action && testParse.uid) {
                   foundJsons.push({
-                    json: potentialJson,
+                    json: cleanedJson,
                     index: jsonStart
                   });
-                  // Log silencioso - JSON reconstruido correctamente
+                  console.log('✅ [DEBUG] JSON fragmentado reconstruido:', cleanedJson);
                   break; // Encontramos uno, procesarlo
                 }
               } catch (e) {
-                // JSON incompleto o inválido, buscar siguiente inicio
+                // JSON incompleto o inválido
+                console.log('⚠️  [DEBUG] JSON potencial pero inválido:', cleanedJson.substring(0, 60), 'Error:', e.message);
+                // Buscar siguiente inicio
                 jsonStart = messageBuffer.indexOf('{"action"', jsonStart + 1);
+                if (jsonStart === -1) {
+                  jsonStart = messageBuffer.indexOf('{\"action\"', jsonStart + 1);
+                }
               }
             } else {
               // No tiene el formato correcto, buscar siguiente inicio
               jsonStart = messageBuffer.indexOf('{"action"', jsonStart + 1);
+              if (jsonStart === -1) {
+                jsonStart = messageBuffer.indexOf('{\"action\"', jsonStart + 1);
+              }
             }
           } else {
             // No encontramos el cierre, el JSON está incompleto - esperar más datos
+            if (jsonStart !== -1) {
+              const partialJson = messageBuffer.substring(jsonStart, Math.min(jsonStart + 50, messageBuffer.length));
+              console.log('⏳ [DEBUG] JSON incompleto esperando más datos:', partialJson);
+            }
             break; // Esperar más datos
           }
         }
@@ -303,11 +347,23 @@ async function initSerial() {
         if (trimmedMessage.includes('💓 Sistema activo') || trimmedMessage.includes('Sistema activo')) {
           console.log('💓 [Arduino Heartbeat] Sistema activo - Conexión OK');
         }
+        // Detectar cuando Arduino reporta tag detectado - IMPORTANTE para debugging
+        else if (trimmedMessage.includes('✅ Tag detectado') || trimmedMessage.includes('Tag detectado:')) {
+          console.log('📟 [Arduino]', trimmedMessage);
+          console.log('⚠️  [IMPORTANTE] Arduino reportó tag detectado, pero no se encontró JSON en el buffer.');
+          console.log('   Verificando buffer completo para JSON...');
+          // Buscar JSON en todo el buffer cuando Arduino reporta tag
+          const jsonInBuffer = messageBuffer.match(/\{"action":"[^"]+","uid":"[A-Fa-f0-9]+"\}/i);
+          if (jsonInBuffer) {
+            console.log('   ✓ JSON encontrado en buffer:', jsonInBuffer[0]);
+          } else {
+            console.log('   ✗ No se encontró JSON válido en el buffer actual');
+            console.log('   Últimos 100 caracteres del buffer:', messageBuffer.substring(Math.max(0, messageBuffer.length - 100)));
+          }
+        }
         // Mostrar todos los mensajes importantes del Arduino
-        else if (trimmedMessage.startsWith('✅ Tag detectado') || 
-                 trimmedMessage.includes('Error al leer UID') ||
+        else if (trimmedMessage.includes('Error al leer UID') ||
                  trimmedMessage.startsWith('❌') ||
-                 trimmedMessage.includes('Tag detectado') ||
                  trimmedMessage.includes('Esperando tags')) {
           console.log('📟 [Arduino]', trimmedMessage);
         }
@@ -319,7 +375,7 @@ async function initSerial() {
       
       // Limpiar buffer si es muy largo
       if (messageBuffer.length > 2000) {
-        const lastJsonMatch = messageBuffer.match(/\{"action":"[^"]+","uid":"[A-F0-9]+"\}/i);
+        const lastJsonMatch = messageBuffer.match(/\{"action":"[^"]+","uid":"[A-Fa-f0-9]+"\}/i);
         if (lastJsonMatch) {
           try {
             const jsonData = JSON.parse(lastJsonMatch[0]);
@@ -329,9 +385,11 @@ async function initSerial() {
             });
             messageBuffer = messageBuffer.replace(lastJsonMatch[0], '');
           } catch (e) {
-            // Ignorar error
+            console.log('⚠️  [DEBUG] Error al procesar último JSON del buffer:', e.message);
           }
         }
+        // Mostrar contenido del buffer antes de limpiar para debugging
+        console.log('🧹 [DEBUG] Limpiando buffer (tamaño:', messageBuffer.length, 'bytes). Últimos 200 chars:', messageBuffer.substring(Math.max(0, messageBuffer.length - 200)));
         messageBuffer = messageBuffer.substring(Math.max(0, messageBuffer.length - 1000));
       }
     });

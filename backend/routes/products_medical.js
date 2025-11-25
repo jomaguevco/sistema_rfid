@@ -8,10 +8,10 @@ const { authenticateToken } = require('../middleware/auth');
 
 /**
  * Helper para filtrar información de stock según rol
- * Solo admin puede ver información de stock
+ * Admin y farmaceutico pueden ver información de stock
  */
 function filterStockForRole(data, userRole) {
-  if (userRole === 'admin') {
+  if (userRole === 'admin' || userRole === 'farmaceutico') {
     return data;
   }
   

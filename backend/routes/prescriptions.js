@@ -70,24 +70,54 @@ router.post('/', authenticateToken, async (req, res) => {
     let finalDoctorLicense = doctor_license || null;
     let finalDoctorId = null;
     
-    // Validar y parsear doctor_id de forma segura
-    if (doctor_id) {
-      const parsedId = parseInt(doctor_id, 10);
-      if (!isNaN(parsedId) && parsedId > 0) {
-        finalDoctorId = parsedId;
-      }
-    }
-    
-    if (finalDoctorId) {
+    if (req.user?.role === 'medico') {
       try {
-        const doctor = await db.getDoctorById(finalDoctorId);
-        if (doctor) {
-          finalDoctorName = doctor.name || finalDoctorName;
-          finalDoctorLicense = doctor.license_number || finalDoctorLicense;
+        let doctorProfile = null;
+        if (req.user?.email) {
+          doctorProfile = await db.getDoctorByEmail(req.user.email);
         }
-      } catch (doctorError) {
-        console.warn('⚠️ No se pudo obtener información del doctor:', doctorError.message);
-        // Continuar con los datos proporcionados
+        if (!doctorProfile && req.user?.username) {
+          doctorProfile = await db.getDoctorByNormalizedUsername(req.user.username);
+        }
+
+        if (!doctorProfile) {
+          return res.status(400).json({
+            success: false,
+            error: 'No se encontró un perfil médico asociado a tu usuario. Solicita al administrador que vincule tus datos.'
+          });
+        }
+
+        finalDoctorId = doctorProfile.id || null;
+        finalDoctorName = doctorProfile.name || doctorProfile.username || finalDoctorName;
+        finalDoctorLicense = doctorProfile.license_number || finalDoctorLicense;
+      } catch (profileError) {
+        console.error('✗ Error al obtener el perfil del médico autenticado:', profileError);
+        return res.status(500).json({
+          success: false,
+          error: 'No se pudo obtener la información del médico autenticado',
+          details: process.env.NODE_ENV === 'development' ? profileError.message : undefined
+        });
+      }
+    } else {
+      // Validar y parsear doctor_id de forma segura (para administradores)
+      if (doctor_id) {
+        const parsedId = parseInt(doctor_id, 10);
+        if (!isNaN(parsedId) && parsedId > 0) {
+          finalDoctorId = parsedId;
+        }
+      }
+      
+      if (finalDoctorId) {
+        try {
+          const doctor = await db.getDoctorById(finalDoctorId);
+          if (doctor) {
+            finalDoctorName = doctor.name || finalDoctorName;
+            finalDoctorLicense = doctor.license_number || finalDoctorLicense;
+          }
+        } catch (doctorError) {
+          console.warn('⚠️ No se pudo obtener información del doctor:', doctorError.message);
+          // Continuar con los datos proporcionados
+        }
       }
     }
 
@@ -165,7 +195,9 @@ router.post('/', authenticateToken, async (req, res) => {
     const prescriptionItems = await db.getPrescriptionItems(prescriptionId);
 
     // Filtrar información de stock según rol (solo admin puede ver stock)
-    const filteredItems = req.user?.role === 'admin' 
+    const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
+
+    const filteredItems = canSeeStock 
       ? prescriptionItems 
       : prescriptionItems.map(item => {
           const { stock_available, ...itemWithoutStock } = item;
@@ -230,6 +262,8 @@ router.get('/qr/:code', authenticateToken, async (req, res) => {
       });
     }
 
+    const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
+
     // Obtener items de la receta
     let items = [];
     try {
@@ -240,7 +274,7 @@ router.get('/qr/:code', authenticateToken, async (req, res) => {
     }
 
     // Filtrar información de stock según rol (solo admin puede ver stock)
-    const filteredItems = req.user?.role === 'admin' 
+    const filteredItems = canSeeStock 
       ? items 
       : items.map(item => {
           const { stock_available, ...itemWithoutStock } = item;
@@ -323,6 +357,8 @@ router.get('/:code', authenticateToken, async (req, res) => {
       }
     }
     
+    const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
+
     // Obtener items de la receta con manejo de errores
     let items = [];
     try {
@@ -345,7 +381,7 @@ router.get('/:code', authenticateToken, async (req, res) => {
     }
 
     // Filtrar información de stock según rol (solo admin puede ver stock)
-    const filteredItems = req.user?.role === 'admin' 
+    const filteredItems = canSeeStock 
       ? items 
       : items.map(item => {
           const { stock_available, ...itemWithoutStock } = item;
@@ -389,7 +425,8 @@ router.get('/:id/items', authenticateToken, async (req, res) => {
     const items = await db.getPrescriptionItems(parseInt(id));
 
     // Filtrar información de stock según rol (solo admin puede ver stock)
-    const filteredItems = req.user?.role === 'admin' 
+    const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
+    const filteredItems = canSeeStock 
       ? items 
       : items.map(item => {
           const { stock_available, ...itemWithoutStock } = item;
@@ -469,13 +506,6 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
-    if (batch.quantity < quantityValue) {
-      return res.status(400).json({
-        success: false,
-        error: `Stock insuficiente. Disponible: ${batch.quantity} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
-      });
-    }
-
     // Verificar que el item pertenece a la receta
     const items = await db.getPrescriptionItems(parseInt(id));
     const item = items.find(i => i.id === prescriptionItemId);
@@ -487,30 +517,59 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
-    // Verificar que no se exceda la cantidad requerida (usar valores validados)
-    const totalDispensed = (item.quantity_dispensed || 0) + quantityValue;
+    // Calcular cantidad restante por despachar
+    const quantityAlreadyDispensed = item.quantity_dispensed || 0;
+    const quantityRemaining = item.quantity_required - quantityAlreadyDispensed;
+
+    // Verificar que no se exceda la cantidad requerida total
+    const totalDispensed = quantityAlreadyDispensed + quantityValue;
     if (totalDispensed > item.quantity_required) {
       return res.status(400).json({
         success: false,
-        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${item.quantity_dispensed || 0} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
+        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${quantityAlreadyDispensed} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
       });
     }
 
-    // Despachar item (usar valores validados)
-    await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, quantityValue, req.userId);
+    // Permitir despacho parcial: ajustar cantidad a despachar si hay stock disponible pero insuficiente
+    let actualQuantityToDispense = quantityValue;
+    let isPartialDispatch = false;
 
-    // Retirar stock del lote (usar valores validados)
-    await db.decrementBatchStock(batch.rfid_uid, quantityValue, null);
+    if (batch.quantity < quantityValue) {
+      // Hay stock disponible pero es menor que lo solicitado
+      // Despachar solo lo disponible (despacho parcial)
+      actualQuantityToDispense = Math.min(batch.quantity, quantityRemaining);
+      isPartialDispatch = true;
+      
+      if (actualQuantityToDispense <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Stock insuficiente. Disponible: ${batch.quantity} unidades individuales, pero ya se despachó todo lo requerido (${quantityAlreadyDispensed}/${item.quantity_required})`
+        });
+      }
+    } else {
+      // Hay stock suficiente, pero verificar que no exceda lo requerido
+      actualQuantityToDispense = Math.min(quantityValue, quantityRemaining);
+      if (actualQuantityToDispense < quantityValue) {
+        isPartialDispatch = true;
+      }
+    }
+
+    // Despachar item (usar cantidad ajustada para despacho parcial)
+    await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, actualQuantityToDispense, req.userId);
+
+    // Retirar stock del lote (usar cantidad ajustada)
+    await db.decrementBatchStock(batch.rfid_uid, actualQuantityToDispense, null);
 
     // Obtener receta actualizada
     const prescription = await db.getPrescriptionById(parseInt(id));
     const updatedItems = await db.getPrescriptionItems(parseInt(id));
 
     // Calcular stock restante del lote
-    const remainingStock = batch.quantity - quantityValue;
+    const remainingStock = batch.quantity - actualQuantityToDispense;
     
     // Filtrar información de stock según rol
-    const filteredItems = req.user?.role === 'admin' 
+    const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
+    const filteredItems = canSeeStock 
       ? updatedItems 
       : updatedItems.map(item => {
           const { stock_available, ...itemWithoutStock } = item;
@@ -520,6 +579,24 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
           };
         });
     
+    // Construir mensaje según si fue despacho parcial o completo
+    let dispatchMessage = `Se despacharon ${actualQuantityToDispense} unidades individuales del medicamento "${item.product_name || 'N/A'}".`;
+    
+    if (isPartialDispatch) {
+      const totalDispensedNow = quantityAlreadyDispensed + actualQuantityToDispense;
+      const stillPending = item.quantity_required - totalDispensedNow;
+      dispatchMessage += ` Despacho parcial: aún faltan ${stillPending} unidades por despachar de las ${item.quantity_required} requeridas.`;
+      
+      if (batch.quantity < quantityValue) {
+        dispatchMessage += ` Solo había ${batch.quantity} unidades disponibles en stock.`;
+      }
+    } else {
+      const totalDispensedNow = quantityAlreadyDispensed + actualQuantityToDispense;
+      if (totalDispensedNow >= item.quantity_required) {
+        dispatchMessage += ` Receta completada para este medicamento.`;
+      }
+    }
+    
     // Construir respuesta según rol
     const responseData = {
       success: true,
@@ -528,12 +605,13 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
         items: filteredItems,
         items_count: filteredItems.length
       },
-      message: `Se despacharon ${quantityValue} unidades individuales del medicamento "${item.product_name || 'N/A'}".`,
-      quantity_dispensed: quantityValue
+      message: dispatchMessage,
+      quantity_dispensed: actualQuantityToDispense,
+      is_partial_dispatch: isPartialDispatch
     };
     
     // Solo incluir remaining_stock si es admin
-    if (req.user?.role === 'admin') {
+    if (canSeeStock) {
       responseData.message += ` Stock restante del lote: ${remainingStock} unidades individuales.`;
       responseData.remaining_stock = remainingStock;
     }

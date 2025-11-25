@@ -3,6 +3,18 @@ import api from '../services/api'
 
 const AuthContext = createContext(null)
 
+function normalizeUserRole(userData) {
+  if (!userData) return userData
+  if (
+    (!userData.role || userData.role.trim() === '') &&
+    typeof userData.username === 'string' &&
+    userData.username.toLowerCase().startsWith('medico_')
+  ) {
+    return { ...userData, role: 'medico' }
+  }
+  return userData
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -15,7 +27,8 @@ export function AuthProvider({ children }) {
     if (token && userData) {
       try {
         const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
+        const normalizedUser = normalizeUserRole(parsedUser)
+        setUser(normalizedUser)
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`
       } catch (error) {
         console.error('Error al parsear usuario:', error)
@@ -36,8 +49,10 @@ export function AuthProvider({ children }) {
       localStorage.setItem('user', JSON.stringify(userData))
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`
       
-      setUser(userData)
-      return { success: true }
+      const normalizedUser = normalizeUserRole(userData)
+      
+      setUser(normalizedUser)
+      return { success: true, user: normalizedUser }
     } catch (error) {
       return {
         success: false,
@@ -81,9 +96,8 @@ export function AuthProvider({ children }) {
       '/stock-exit'
     ]
 
-    // Rutas permitidas para Médico
+    // Rutas permitidas para Médico (NO incluye /dashboard)
     const medicoRoutes = [
-      '/dashboard',
       '/prescriptions'
     ]
 
@@ -123,13 +137,35 @@ export function AuthProvider({ children }) {
   // Verificar si el usuario puede ver información de stock
   const canViewStock = () => {
     if (!user) return false
-    return user.role === 'admin'
+    return user.role === 'admin' || user.role === 'farmaceutico'
   }
 
   // Verificar si el usuario puede realizar una acción (create, update, delete)
   const canPerformAction = (resource, action) => {
     if (!user) return false
     if (user.role === 'admin') return true
+
+    if (user.role === 'medico') {
+      // Médico solo puede crear y leer recetas
+      if (resource === 'prescriptions') {
+        // Médico puede crear recetas
+        if (action === 'create') {
+          return true
+        }
+        // Médico puede leer sus propias recetas
+        if (action === 'read') {
+          return true
+        }
+        // Médico NO puede despachar, cancelar, actualizar o eliminar recetas
+        if (['fulfill', 'update', 'delete', 'cancel', 'print'].includes(action)) {
+          return false
+        }
+        return false
+      }
+      
+      // Médico NO puede acceder a otros recursos
+      return false
+    }
 
     if (user.role === 'farmaceutico') {
       // Farmacéutico solo puede leer productos, no editarlos

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
@@ -43,9 +44,10 @@ export default function Stock() {
     product_type: ''
   })
 
-  // Verificar que solo admin pueda acceder
-  if (!hasRole('admin')) {
-    return null // ProtectedRoute manejará la redirección
+  const canViewStock = hasAnyRole(['admin', 'farmaceutico'])
+
+  if (!canViewStock) {
+    return <Navigate to="/dashboard" replace />
   }
 
   // Debounce del search query con 500ms de delay
@@ -54,6 +56,30 @@ export default function Stock() {
   useEffect(() => {
     setDebouncedSearchQuery(debouncedQuery)
   }, [debouncedQuery])
+
+  const { data: stockStats, isLoading: loadingStockStats } = useQuery({
+    queryKey: ['stock-overview-stats'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/stats')
+      return response.data.data || {}
+    }
+  })
+
+  const { data: lowStockCritical = [], isLoading: loadingLowStock } = useQuery({
+    queryKey: ['stock-low-critical'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/low-stock')
+      return response.data.data || []
+    }
+  })
+
+  const { data: expiringSoon = [], isLoading: loadingExpiring } = useQuery({
+    queryKey: ['stock-expiring'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/expiring?days=45')
+      return response.data.data || []
+    }
+  })
 
   const { data: products, isLoading, error, refetch } = useQuery({
     queryKey: ['stock', debouncedSearchQuery, filters],
@@ -274,6 +300,91 @@ export default function Stock() {
           <h1>Gestión de Stock</h1>
           <p className="page-subtitle">Ver stock total de medicamentos agrupados por producto. El código IDP identifica cada producto. Presiona "Stock" para ver detalles por lote.</p>
         </div>
+      </div>
+
+      <div className="stock-overview-grid">
+        {loadingStockStats ? (
+          <Loading text="Cargando métricas de stock..." />
+        ) : (
+          [
+            {
+              label: 'Stock total',
+              value: stockStats?.total_stock || 0,
+              helper: 'Unidades disponibles'
+            },
+            {
+              label: 'Medicamentos vencidos',
+              value: stockStats?.expired_products || 0,
+              helper: 'Pendientes de retirar'
+            },
+            {
+              label: 'Por vencer (30 días)',
+              value: stockStats?.expiring_soon || 0,
+              helper: 'Revisar rotación'
+            },
+            {
+              label: 'Stock bajo',
+              value: stockStats?.low_stock_products || 0,
+              helper: 'Requieren reposición'
+            }
+          ].map((metric, index) => (
+            <Card key={index} className="stock-overview-card" shadow="md">
+              <span className="stock-overview-label">{metric.label}</span>
+              <div className="stock-overview-value">{metric.value.toLocaleString()}</div>
+              <span className="stock-overview-helper">{metric.helper}</span>
+            </Card>
+          ))
+        )}
+      </div>
+
+      <div className="stock-insights-grid">
+        <Card title="Stock crítico" shadow="md">
+          {loadingLowStock ? (
+            <Loading text="Evaluando stock..." size="sm" />
+          ) : lowStockCritical.length ? (
+            <div className="stock-insight-list">
+              {lowStockCritical.slice(0, 6).map((item) => (
+                <div key={item.id} className="stock-insight-item">
+                  <div className="stock-insight-main">
+                    <strong>{item.name}</strong>
+                    <span>{item.category_name || 'Sin categoría'}</span>
+                  </div>
+                  <div className="stock-insight-metrics">
+                    <Badge variant={item.current_stock <= 0 ? 'error' : 'warning'} size="sm">
+                      {item.current_stock || 0} / {item.min_stock || 0}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-message">No hay productos con stock crítico.</p>
+          )}
+        </Card>
+
+        <Card title="Próximos vencimientos" shadow="md">
+          {loadingExpiring ? (
+            <Loading text="Analizando lotes..." size="sm" />
+          ) : expiringSoon.length ? (
+            <div className="stock-insight-list">
+              {expiringSoon.slice(0, 6).map((batch) => (
+                <div key={`${batch.product_id}-${batch.id || batch.lot_number}`} className="stock-insight-item">
+                  <div className="stock-insight-main">
+                    <strong>{batch.product_name}</strong>
+                    <span>Lote {batch.lot_number || 'N/A'} · {batch.days_to_expiry} días</span>
+                  </div>
+                  <div className="stock-insight-metrics">
+                    <Badge variant={batch.days_to_expiry <= 7 ? 'error' : 'warning'} size="sm">
+                      {batch.quantity} uds
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-message">Sin lotes próximos a vencer.</p>
+          )}
+        </Card>
       </div>
 
       <Card shadow="md">

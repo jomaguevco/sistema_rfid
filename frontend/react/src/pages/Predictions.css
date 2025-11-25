@@ -26,11 +26,56 @@
   margin: 0;
 }
 
+.header-actions {
+  display: flex;
+  gap: var(--spacing-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .predictions-filters {
+  padding: var(--spacing-4);
+}
+
+.filters-main {
   display: flex;
   gap: var(--spacing-4);
   flex-wrap: wrap;
-  padding: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+}
+
+.filters-advanced {
+  border-top: 2px solid var(--color-gray-200);
+  padding-top: var(--spacing-4);
+  margin-top: var(--spacing-4);
+  animation: slideDown var(--animation-duration-base) ease-out;
+}
+
+.filters-advanced-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-4);
+}
+
+.filters-advanced-header h3 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-900);
+  margin: 0;
+}
+
+.clear-filters-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-sm);
+}
+
+.filters-advanced-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--spacing-4);
 }
 
 .filter-group {
@@ -55,6 +100,11 @@
   color: var(--color-gray-900);
   transition: all var(--transition-base);
   font-family: var(--font-family-primary);
+  cursor: pointer;
+}
+
+.filter-select:hover {
+  border-color: var(--color-primary);
 }
 
 .filter-select:focus {
@@ -63,13 +113,52 @@
   box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
+.filter-input {
+  width: 100%;
+}
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-12);
+  color: var(--color-gray-500);
+}
+
+.empty-state p {
+  margin-bottom: var(--spacing-2);
+}
+
+.mt-3 {
+  margin-top: var(--spacing-3);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 768px) {
-  .predictions-filters {
+  .filters-main,
+  .filters-advanced-content {
     flex-direction: column;
+    grid-template-columns: 1fr;
   }
   
   .filter-group {
     min-width: 100%;
+  }
+  
+  .header-actions {
+    width: 100%;
+  }
+  
+  .header-actions > * {
+    flex: 1;
   }
 }
 

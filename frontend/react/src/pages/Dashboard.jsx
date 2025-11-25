@@ -1,10 +1,11 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
 import Card from '../components/common/Card'
 import Button from '../components/common/Button'
 import Loading from '../components/common/Loading'
+import Badge from '../components/common/Badge'
 import ConsumptionChart from '../components/dashboard/ConsumptionChart'
 import CategoryDistribution from '../components/dashboard/CategoryDistribution'
 import ExpiryDistribution from '../components/dashboard/ExpiryDistribution'
@@ -15,8 +16,26 @@ import './Dashboard.css'
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { hasRole } = useAuth()
-  const isAdmin = hasRole('admin')
+  const { hasRole, user, loading: authLoading } = useAuth()
+
+  // Debug logs
+  const isMedico = user?.role === 'medico'
+
+  console.log('[Dashboard]', { authLoading, user: user?.role, isMedico })
+
+  // Esperar a que se cargue la autenticación
+  if (authLoading || !user) {
+    return <Loading fullScreen text="Cargando..." />
+  }
+
+  // Si es médico, redirigir inmediatamente a la página de recetas (ANTES de cualquier otra lógica)
+  if (isMedico) {
+    console.log('[Dashboard] Médico detectado, redirigiendo a /prescriptions')
+    return <Navigate to="/prescriptions" replace />
+  }
+
+  const isChemist = user.role === 'farmaceutico'
+  const isAdmin = user.role === 'admin'
 
   const { data: stats, isLoading, error: statsError } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -41,7 +60,8 @@ export default function Dashboard() {
       }
     },
     retry: 2,
-    refetchOnWindowFocus: true
+    refetchOnWindowFocus: true,
+    enabled: !isMedico // No cargar estadísticas si es médico
   })
 
   const { data: prescriptions, isLoading: loadingPrescriptions } = useQuery({
@@ -55,6 +75,33 @@ export default function Dashboard() {
       }
     },
     enabled: !isAdmin // Solo cargar para Farmacéutico
+  })
+
+  const { data: lowStockData = [], isLoading: loadingLowStock, error: lowStockError } = useQuery({
+    queryKey: ['dashboard-low-stock'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/low-stock')
+      return (response.data.data || []).slice(0, 5)
+    },
+    enabled: isChemist
+  })
+
+  const { data: expiringSoon = [], isLoading: loadingExpiring, error: expiringError } = useQuery({
+    queryKey: ['dashboard-expiring'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/expiring?days=30')
+      return (response.data.data || []).slice(0, 5)
+    },
+    enabled: isChemist
+  })
+
+  const { data: chemistPredictionsSummary, isLoading: loadingChemistPredictions, error: chemistPredictionsError } = useQuery({
+    queryKey: ['dashboard-predictions-summary'],
+    queryFn: async () => {
+      const response = await api.get('/dashboard/predictions-summary')
+      return response.data.data || {}
+    },
+    enabled: isChemist
   })
 
   if (isLoading) {
@@ -151,7 +198,7 @@ export default function Dashboard() {
     }
   ]
 
-  if (isAdmin) {
+  if (isAdmin || isChemist) {
     metrics.push({
       label: 'Alertas',
       value: stats?.total_alerts || 0,
@@ -160,12 +207,118 @@ export default function Dashboard() {
     })
   }
 
+  const renderLowStockList = () => {
+    if (loadingLowStock) return <Loading text="Cargando stock crítico..." size="sm" />
+    if (lowStockError) return <p className="empty-message">No se pudo cargar el stock crítico.</p>
+    if (!lowStockData.length) return <p className="empty-message">No hay productos con stock bajo.</p>
+    return (
+      <div className="insights-list">
+        {lowStockData.map((item) => (
+          <div key={item.id} className="insight-row">
+            <div className="insight-main">
+              <strong>{item.name}</strong>
+              <span className="insight-meta">{item.category_name || 'Sin categoría'}</span>
+            </div>
+            <div className="insight-kpis">
+              <Badge variant={item.current_stock <= 0 ? 'error' : 'warning'}>
+                {item.current_stock || 0} / {item.min_stock || 0}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderExpiringList = () => {
+    if (loadingExpiring) return <Loading text="Cargando lotes..." size="sm" />
+    if (expiringError) return <p className="empty-message">No se pudo cargar la información de vencimientos.</p>
+    if (!expiringSoon.length) return <p className="empty-message">No hay lotes próximos a vencer.</p>
+    return (
+      <div className="insights-list">
+        {expiringSoon.map((batch) => (
+          <div key={`${batch.product_id}-${batch.id || batch.lot_number}`} className="insight-row">
+            <div className="insight-main">
+              <strong>{batch.product_name}</strong>
+              <span className="insight-meta">
+                Lote {batch.lot_number || 'N/A'} · {batch.days_to_expiry} días
+              </span>
+            </div>
+            <div className="insight-kpis">
+              <Badge variant={batch.days_to_expiry <= 7 ? 'error' : 'warning'}>
+                {batch.quantity} uds
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderChemistPredictions = () => {
+    if (loadingChemistPredictions) return <Loading text="Analizando predicciones..." size="sm" />
+    if (chemistPredictionsError) return <p className="empty-message">No se pudo cargar el resumen de predicciones.</p>
+    if (!chemistPredictionsSummary) return <p className="empty-message">No hay datos disponibles.</p>
+
+    const monthData = chemistPredictionsSummary.month || {}
+    const quarterData = chemistPredictionsSummary.quarter || {}
+    const yearData = chemistPredictionsSummary.year || {}
+    const topDeficit = (chemistPredictionsSummary.top_deficit || []).slice(0, 5)
+    const deficitRate =
+      monthData.total > 0 ? Math.round(((monthData.insufficient || 0) / monthData.total) * 100) : 0
+
+    return (
+      <>
+        <div className="prediction-kpis">
+          <div className="prediction-kpi">
+            <span className="kpi-label">Pronósticos mensuales</span>
+            <div className="kpi-value">{monthData.total || 0}</div>
+            <p className="kpi-helper">
+              {monthData.insufficient || 0} con déficit ({deficitRate}%)
+            </p>
+          </div>
+          <div className="prediction-kpi">
+            <span className="kpi-label">Pronósticos trimestrales</span>
+            <div className="kpi-value">{quarterData.total || 0}</div>
+            <p className="kpi-helper">Actualizados semanalmente</p>
+          </div>
+          <div className="prediction-kpi">
+            <span className="kpi-label">Pronósticos anuales</span>
+            <div className="kpi-value">{yearData.total || 0}</div>
+            <p className="kpi-helper">Cobertura global del hospital</p>
+          </div>
+        </div>
+        {topDeficit.length > 0 ? (
+          <div className="top-deficit-list">
+            {topDeficit.map((item) => (
+              <div key={`${item.product_id}-${item.id}`} className="top-deficit-item">
+                <div>
+                  <strong>{item.product_name}</strong>
+                  <span className="insight-meta">
+                    Stock actual {item.current_stock || 0} · Demanda {item.predicted_quantity || 0}
+                  </span>
+                </div>
+                <Badge variant="error">Déficit {item.deficit}</Badge>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-message">No hay alertas críticas de demanda.</p>
+        )}
+      </>
+    )
+  }
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
         <h1>Dashboard</h1>
         <p className="dashboard-subtitle">
-          {isAdmin ? 'Vista general del sistema' : 'Resumen de actividades'}
+          {isAdmin
+            ? 'Vista general del sistema'
+            : isChemist
+            ? 'Monitoreo integral de stock y despacho'
+            : 'Resumen de actividades'}
         </p>
       </div>
 
@@ -241,6 +394,25 @@ export default function Dashboard() {
           )
         })}
       </div>
+
+      {isChemist && (
+        <>
+          <div className="dashboard-charts-grid">
+            <Card title="Stock en riesgo" shadow="md">
+              {renderLowStockList()}
+            </Card>
+            <Card title="Próximos a vencer" shadow="md">
+              {renderExpiringList()}
+            </Card>
+          </div>
+
+          <div className="dashboard-section">
+            <Card title="Predicciones y demanda" shadow="md">
+              {renderChemistPredictions()}
+            </Card>
+          </div>
+        </>
+      )}
 
       {!isAdmin && (
         <div className="dashboard-section">

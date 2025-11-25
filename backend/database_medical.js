@@ -44,6 +44,23 @@ pool.on('error', (err) => {
   }
 });
 
+const normalizeText = (value = '') => {
+  try {
+    return value
+      .toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/gi, '')
+      .toLowerCase();
+  } catch (error) {
+    // En entornos que no soportan normalize, degradar sin acentos
+    return value
+      .toString()
+      .replace(/[^a-z0-9]/gi, '')
+      .toLowerCase();
+  }
+};
+
 // Probar conexión
 pool.getConnection()
   .then(connection => {
@@ -1243,6 +1260,47 @@ async function getDoctorById(id) {
       [id]
     );
     return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Obtener doctor por email (caso usuarios médicos vinculados por correo)
+ */
+async function getDoctorByEmail(email) {
+  try {
+    if (!email) return null;
+    const [rows] = await pool.execute(
+      `SELECT d.*, a.name as area_name
+       FROM doctors d
+       LEFT JOIN areas a ON d.area_id = a.id
+       WHERE LOWER(d.email) = LOWER(?)
+       LIMIT 1`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+}
+
+/**
+ * Obtener doctor comparando nombre normalizado con username (ej: medico_juan_perez)
+ */
+async function getDoctorByNormalizedUsername(username) {
+  try {
+    if (!username) return null;
+    const normalizedUsername = normalizeText(username).replace(/^medico/, '');
+    if (!normalizedUsername) return null;
+
+    const [rows] = await pool.execute(
+      `SELECT d.*, a.name as area_name
+       FROM doctors d
+       LEFT JOIN areas a ON d.area_id = a.id`
+    );
+
+    return rows.find((doctor) => normalizeText(doctor.name) === normalizedUsername) || null;
   } catch (error) {
     throw error;
   }
@@ -2944,8 +3002,15 @@ async function getPrescriptionItems(prescriptionId) {
         );
         
         const stockAvailable = parseInt(stockRows[0]?.total_stock || 0);
+        const quantityRequired = parseInt(rows[i].quantity_required || 0);
+        const quantityDispensed = parseInt(rows[i].quantity_dispensed || 0);
+        const quantityRemaining = quantityRequired - quantityDispensed;
+        
         rows[i].stock_available = stockAvailable;
-        rows[i].is_out_of_stock = stockAvailable === 0;
+        // Marcar como sin stock si:
+        // 1. No hay stock disponible (stockAvailable === 0), O
+        // 2. El stock disponible es menor que la cantidad que aún falta por despachar
+        rows[i].is_out_of_stock = stockAvailable === 0 || stockAvailable < quantityRemaining;
         
         // Obtener información del lote más antiguo disponible (FIFO)
         const [batchRows] = await pool.execute(
@@ -3043,7 +3108,7 @@ async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batch
     // Actualizar cantidad despachada en prescription_items
     await pool.execute(
       `UPDATE prescription_items 
-       SET quantity_dispensed = quantity_dispensed + ?,
+       SET quantity_dispensed = COALESCE(quantity_dispensed, 0) + ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND prescription_id = ?`,
       [quantity, prescriptionItemId, prescriptionId]
@@ -3065,8 +3130,13 @@ async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batch
       [prescriptionId]
     );
     
-    const allFulfilled = items.every(item => item.quantity_dispensed >= item.quantity_required);
-    const someFulfilled = items.some(item => item.quantity_dispensed > 0);
+    // Manejar valores null en quantity_dispensed (tratarlos como 0)
+    const allFulfilled = items.every(item => {
+      const dispensed = item.quantity_dispensed || 0;
+      const required = item.quantity_required || 0;
+      return dispensed >= required;
+    });
+    const someFulfilled = items.some(item => (item.quantity_dispensed || 0) > 0);
     
     let newStatus = 'pending';
     if (allFulfilled) {
@@ -3474,6 +3544,8 @@ module.exports = {
   // Doctores
   getAllDoctors,
   getDoctorById,
+  getDoctorByEmail,
+  getDoctorByNormalizedUsername,
   createDoctor,
   updateDoctor,
   deleteDoctor,

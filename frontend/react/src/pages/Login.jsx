@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { HiShieldCheck } from 'react-icons/hi'
@@ -11,8 +11,15 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login } = useAuth()
+  const { login, isAuthenticated, user } = useAuth()
   const navigate = useNavigate()
+
+  // Si ya está autenticado, redirigir al inicio para que el ProtectedRoute decida
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      navigate('/', { replace: true })
+    }
+  }, [isAuthenticated, user, navigate])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -21,12 +28,13 @@ export default function Login() {
 
     const result = await login(username, password)
     
-    if (result.success) {
-      navigate('/dashboard')
-    } else {
-      setError(result.error)
+    if (result.success && result.user) {
+      setLoading(false)
+      navigate('/', { replace: true })
+      return
     }
-    
+
+    setError(result.error || 'Error al iniciar sesión')
     setLoading(false)
   }
 

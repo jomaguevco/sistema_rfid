@@ -37,6 +37,49 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 /**
+ * GET /api/doctors/me
+ * Obtener información del doctor asociado al usuario autenticado
+ */
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    if (req.user?.role !== 'medico' && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Solo los médicos pueden consultar su perfil.'
+      });
+    }
+
+    let doctor = null;
+
+    if (req.user?.email) {
+      doctor = await db.getDoctorByEmail(req.user.email);
+    }
+
+    if (!doctor && req.user?.username) {
+      doctor = await db.getDoctorByNormalizedUsername(req.user.username);
+    }
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se encontró un perfil de médico asociado a este usuario. Solicita a un administrador que vincule tu cuenta.'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: doctor
+    });
+  } catch (error) {
+    console.error('✗ Error al obtener perfil del médico:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
  * GET /api/doctors/:id
  * Obtener un doctor por ID
  */

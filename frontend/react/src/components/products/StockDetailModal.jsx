@@ -18,15 +18,11 @@ export default function StockDetailModal({ rfidCode, isOpen, onClose }) {
   const queryClient = useQueryClient()
   const [searchRfid, setSearchRfid] = useState('')
   const [searchByRfid, setSearchByRfid] = useState(false)
-  const isAdmin = hasRole('admin')
+  const canViewDetails = hasRole('admin') || hasRole('farmaceutico')
+  const isAdmin = hasRole('admin') // Solo para acciones de eliminación
   
-  // Si no es admin, no mostrar el modal
-  if (!isAdmin) {
-    return null
-  }
-
-  // Solo admin puede ver este modal
-  if (!isAdmin) {
+  // Si no es admin ni farmaceutico, no mostrar el modal
+  if (!canViewDetails) {
     return null
   }
 

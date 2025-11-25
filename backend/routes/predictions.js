@@ -1,7 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const predictionEngine = require('../utils/predictionEngine');
+const { applyAdjustments } = predictionEngine;
 const db = require('../database_medical');
+
+function enhancePredictionRow(row) {
+  const adjustment = applyAdjustments(row.predicted_quantity || 0, row.product_id, row.prediction_period);
+  const currentStock = row.current_stock !== undefined ? row.current_stock : 0;
+  const adjustedPrediction = adjustment.adjusted_prediction;
+  const deficit = Math.round(adjustedPrediction - currentStock);
+
+  return {
+    ...row,
+    adjusted_prediction: adjustedPrediction,
+    seasonality_factor: Number(adjustment.seasonality_factor.toFixed(2)),
+    external_adjustment: adjustment.external_adjustment,
+    safety_stock: Math.round(adjustedPrediction * 0.2),
+    deficit,
+    recommended_order: deficit > 0 ? deficit + Math.round(adjustedPrediction * 0.2) : 0
+  };
+}
 
 /**
  * GET /api/predictions/product/:productId
@@ -13,10 +31,24 @@ router.get('/product/:productId', async (req, res) => {
     const areaId = req.query.area_id ? parseInt(req.query.area_id) : null;
     
     const predictions = await predictionEngine.getPredictions(productId, areaId);
+    const [productRows] = await db.pool.execute(
+      `SELECT p.id, p.name, COALESCE((SELECT SUM(pb.quantity) FROM product_batches pb WHERE pb.product_id = p.id), 0) as current_stock
+       FROM products p
+       WHERE p.id = ?`,
+      [productId]
+    );
+    const currentStock = productRows[0]?.current_stock || 0;
+    const enhanced = predictions.map(prediction =>
+      enhancePredictionRow({
+        ...prediction,
+        product_id: productId,
+        current_stock: currentStock
+      })
+    );
     
     res.json({
       success: true,
-      data: predictions
+      data: enhanced
     });
   } catch (error) {
     res.status(500).json({

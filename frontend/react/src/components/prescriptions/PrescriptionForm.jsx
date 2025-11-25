@@ -12,7 +12,8 @@ import './PrescriptionForm.css'
 
 export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
   const queryClient = useQueryClient()
-  const { canViewStock } = useAuth()
+  const { canViewStock, hasRole } = useAuth()
+  const isMedico = hasRole('medico')
   
   const [formData, setFormData] = useState({
     patient_id: '',
@@ -49,6 +50,21 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false)
   const [selectedDoctor, setSelectedDoctor] = useState(null)
   const [selectedArea, setSelectedArea] = useState('')
+
+  const {
+    data: doctorProfile,
+    isLoading: loadingDoctorProfile,
+    error: doctorProfileError
+  } = useQuery({
+    queryKey: ['doctor-profile'],
+    queryFn: async () => {
+      const response = await api.get('/doctors/me')
+      return response.data.data
+    },
+    enabled: isOpen && isMedico,
+    staleTime: 5 * 60 * 1000,
+    retry: 1
+  })
 
   const { data: areas } = useQuery({
     queryKey: ['areas'],
@@ -106,7 +122,7 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       const response = await api.get(`/doctors?${params.toString()}`)
       return response.data.data || []
     },
-    enabled: isOpen && doctorSearch.trim().length > 2
+    enabled: isOpen && !isMedico && doctorSearch.trim().length > 2
   })
 
   // Búsqueda de productos con autocompletado
@@ -158,6 +174,34 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       setShowDoctorDropdown(false)
     }
   }, [doctorsData])
+
+  useEffect(() => {
+    if (!isOpen || !isMedico || !doctorProfile) return
+
+    setSelectedDoctor(doctorProfile)
+    setDoctorSearch(doctorProfile.name || '')
+    setSelectedArea(doctorProfile.area_id ? String(doctorProfile.area_id) : '')
+    setFormData((prev) => ({
+      ...prev,
+      doctor_id: doctorProfile.id || '',
+      doctor_name: doctorProfile.name || '',
+      doctor_license: doctorProfile.license_number || ''
+    }))
+  }, [isOpen, isMedico, doctorProfile])
+
+  useEffect(() => {
+    if (!isOpen || !isMedico) return
+    if (!loadingDoctorProfile && !doctorProfile) {
+      setSelectedDoctor(null)
+      setDoctorSearch('')
+      setFormData((prev) => ({
+        ...prev,
+        doctor_id: '',
+        doctor_name: '',
+        doctor_license: ''
+      }))
+    }
+  }, [isOpen, isMedico, loadingDoctorProfile, doctorProfile])
 
   const selectProduct = (product) => {
     console.log('🔍 [DEBUG] selectProduct llamado con:', product)
@@ -397,6 +441,10 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
 
   const isLoading = createMutation.isPending
   const error = createMutation.error
+  const shouldShowManualDoctorInputs = !isMedico || (!loadingDoctorProfile && !doctorProfile)
+  const doctorAutoFillErrorMsg = isMedico && !loadingDoctorProfile && doctorProfileError
+    ? doctorProfileError.response?.data?.error || 'No se encontró tu perfil médico. Completa los datos manualmente.'
+    : null
 
   return (
     <Modal
@@ -496,96 +544,126 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
 
         <div className="form-section">
           <h4>Información del Médico</h4>
-          <div className="form-group">
-            <label>Área (Opcional - para filtrar médicos)</label>
-            <select
-              value={selectedArea}
-              onChange={(e) => {
-                setSelectedArea(e.target.value)
-                setDoctorSearch('')
-                setSelectedDoctor(null)
-                setFormData({ ...formData, doctor_id: '', doctor_name: '', doctor_license: '' })
-              }}
-              className="input"
-            >
-              <option value="">Todas las áreas</option>
-              {areas?.map((area) => (
-                <option key={area.id} value={area.id}>
-                  {area.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-row form-row-2">
-            <div className="form-group" style={{ position: 'relative' }}>
-              <label>Buscar Médico <span className="input-required">*</span></label>
-              <Input
-                placeholder="Buscar por nombre, especialidad o colegiatura..."
-                value={doctorSearch}
-                onChange={(e) => {
-                  setDoctorSearch(e.target.value)
-                  if (!e.target.value.trim()) {
-                    setSelectedDoctor(null)
-                    setFormData({ ...formData, doctor_id: '', doctor_name: '', doctor_license: '' })
-                  }
-                }}
-                onFocus={() => {
-                  if (doctorSearchResults.length > 0) setShowDoctorDropdown(true)
-                }}
-                onBlur={() => {
-                  setTimeout(() => setShowDoctorDropdown(false), 200)
-                }}
-                error={errors.doctor_name}
-              />
-              {showDoctorDropdown && doctorSearchResults.length > 0 && (
-                <div className="doctor-dropdown" onMouseDown={(e) => e.preventDefault()}>
-                  {doctorSearchResults.map((doctor) => (
-                    <div
-                      key={doctor.id}
-                      className="doctor-dropdown-item"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        selectDoctor(doctor)
-                      }}
-                    >
-                      <div className="doctor-dropdown-name">{doctor.name}</div>
-                      {doctor.specialty && (
-                        <div className="doctor-dropdown-detail">Especialidad: {doctor.specialty}</div>
-                      )}
-                      {doctor.area_name && (
-                        <div className="doctor-dropdown-detail">Área: {doctor.area_name}</div>
-                      )}
-                      {doctor.license_number && (
-                        <div className="doctor-dropdown-detail">Colegiatura: {doctor.license_number}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {selectedDoctor && (
+
+          {isMedico && (
+            <div className="auto-doctor-panel">
+              {loadingDoctorProfile ? (
+                <Loading text="Cargando tu información médica..." size="sm" />
+              ) : doctorProfile ? (
                 <div className="selected-info">
-                  <strong>{selectedDoctor.name}</strong>
-                  {selectedDoctor.specialty && <span>Especialidad: {selectedDoctor.specialty}</span>}
-                  {selectedDoctor.area_name && <span>Área: {selectedDoctor.area_name}</span>}
+                  <strong>{doctorProfile.name}</strong>
+                  <div className="selected-info-details">
+                    {doctorProfile.specialty && <span>Especialidad: {doctorProfile.specialty}</span>}
+                    {doctorProfile.area_name && <span>Área: {doctorProfile.area_name}</span>}
+                    {doctorProfile.license_number && <span>Colegiatura: {doctorProfile.license_number}</span>}
+                    {doctorProfile.email && <span>Email: {doctorProfile.email}</span>}
+                  </div>
+                  <small>Estos datos provienen de tu perfil médico y no pueden editarse.</small>
                 </div>
+              ) : (
+                doctorAutoFillErrorMsg && (
+                  <div className="form-error" role="alert">
+                    {doctorAutoFillErrorMsg}
+                  </div>
+                )
               )}
             </div>
-            {!selectedDoctor && (
-              <Input
-                label="Nombre del Médico (si no está registrado)"
-                value={formData.doctor_name}
-                onChange={(e) => setFormData({ ...formData, doctor_name: e.target.value })}
-                error={errors.doctor_name}
-                required={!selectedDoctor}
-              />
-            )}
-          </div>
-          {!selectedDoctor && (
-            <Input
-              label="Número de Colegiatura (Opcional)"
-              value={formData.doctor_license}
-              onChange={(e) => setFormData({ ...formData, doctor_license: e.target.value })}
-            />
+          )}
+
+          {shouldShowManualDoctorInputs && (
+            <>
+              <div className="form-group">
+                <label>Área (Opcional - para filtrar médicos)</label>
+                <select
+                  value={selectedArea}
+                  onChange={(e) => {
+                    setSelectedArea(e.target.value)
+                    setDoctorSearch('')
+                    setSelectedDoctor(null)
+                    setFormData({ ...formData, doctor_id: '', doctor_name: '', doctor_license: '' })
+                  }}
+                  className="input"
+                >
+                  <option value="">Todas las áreas</option>
+                  {areas?.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row form-row-2">
+                <div className="form-group" style={{ position: 'relative' }}>
+                  <label>Buscar Médico <span className="input-required">*</span></label>
+                  <Input
+                    placeholder="Buscar por nombre, especialidad o colegiatura..."
+                    value={doctorSearch}
+                    onChange={(e) => {
+                      setDoctorSearch(e.target.value)
+                      if (!e.target.value.trim()) {
+                        setSelectedDoctor(null)
+                        setFormData({ ...formData, doctor_id: '', doctor_name: '', doctor_license: '' })
+                      }
+                    }}
+                    onFocus={() => {
+                      if (doctorSearchResults.length > 0) setShowDoctorDropdown(true)
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setShowDoctorDropdown(false), 200)
+                    }}
+                    error={errors.doctor_name}
+                  />
+                  {showDoctorDropdown && doctorSearchResults.length > 0 && (
+                    <div className="doctor-dropdown" onMouseDown={(e) => e.preventDefault()}>
+                      {doctorSearchResults.map((doctor) => (
+                        <div
+                          key={doctor.id}
+                          className="doctor-dropdown-item"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectDoctor(doctor)
+                          }}
+                        >
+                          <div className="doctor-dropdown-name">{doctor.name}</div>
+                          {doctor.specialty && (
+                            <div className="doctor-dropdown-detail">Especialidad: {doctor.specialty}</div>
+                          )}
+                          {doctor.area_name && (
+                            <div className="doctor-dropdown-detail">Área: {doctor.area_name}</div>
+                          )}
+                          {doctor.license_number && (
+                            <div className="doctor-dropdown-detail">Colegiatura: {doctor.license_number}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedDoctor && (
+                    <div className="selected-info">
+                      <strong>{selectedDoctor.name}</strong>
+                      {selectedDoctor.specialty && <span>Especialidad: {selectedDoctor.specialty}</span>}
+                      {selectedDoctor.area_name && <span>Área: {selectedDoctor.area_name}</span>}
+                    </div>
+                  )}
+                </div>
+                {!selectedDoctor && (
+                  <Input
+                    label="Nombre del Médico (si no está registrado)"
+                    value={formData.doctor_name}
+                    onChange={(e) => setFormData({ ...formData, doctor_name: e.target.value })}
+                    error={errors.doctor_name}
+                    required={!selectedDoctor}
+                  />
+                )}
+              </div>
+              {!selectedDoctor && (
+                <Input
+                  label="Número de Colegiatura (Opcional)"
+                  value={formData.doctor_license}
+                  onChange={(e) => setFormData({ ...formData, doctor_license: e.target.value })}
+                />
+              )}
+            </>
           )}
         </div>
 
