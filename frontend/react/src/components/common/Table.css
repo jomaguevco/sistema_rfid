@@ -82,3 +82,50 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Table
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .table-container {
+    border-radius: var(--border-radius-md);
+    /* Scrollbar más visible en móvil */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table th {
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-xs);
+  }
+
+  .table td {
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-sm);
+  }
+
+  .table tbody tr:hover {
+    transform: none;
+  }
+
+  .table-loading,
+  .table-empty {
+    padding: var(--spacing-6);
+  }
+}
+
+@media (max-width: 640px) {
+  .table th {
+    padding: var(--spacing-2);
+    font-size: 0.625rem;
+  }
+
+  .table td {
+    padding: var(--spacing-2);
+    font-size: var(--font-size-xs);
+  }
+
+  .table-loading .loading-spinner {
+    width: 32px;
+    height: 32px;
+  }
+}
+

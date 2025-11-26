@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import {
@@ -16,7 +17,9 @@ import {
   HiBell,
   HiShieldCheck,
   HiLogout,
-  HiQrcode
+  HiQrcode,
+  HiMenu,
+  HiX
 } from 'react-icons/hi'
 import Button from './Button'
 import './Layout.css'
@@ -25,6 +28,13 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout, hasRole, canAccess, loading } = useAuth()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Cerrar sidebar al navegar en móvil
+  const handleNavigate = (path) => {
+    navigate(path)
+    setSidebarOpen(false)
+  }
 
   // Si está cargando, mostrar loading
   if (loading) {
@@ -90,7 +100,24 @@ export default function Layout() {
 
   return (
     <div className="app-layout">
-      <nav className="sidebar">
+      {/* Botón hamburguesa para móvil */}
+      <button 
+        className="mobile-menu-btn"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        aria-label="Menú"
+      >
+        {sidebarOpen ? <HiX /> : <HiMenu />}
+      </button>
+
+      {/* Overlay para cerrar sidebar en móvil */}
+      {sidebarOpen && (
+        <div 
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <nav className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <HiShieldCheck />
@@ -105,7 +132,7 @@ export default function Layout() {
               <li key={item.path}>
                 <button
                   className={isActive(item.path) ? 'active' : ''}
-                  onClick={() => navigate(item.path)}
+                  onClick={() => handleNavigate(item.path)}
                 >
                   <Icon />
                   <span>{item.label}</span>
@@ -124,7 +151,7 @@ export default function Layout() {
                   <li key={item.path}>
                     <button
                       className={isActive(item.path) ? 'active' : ''}
-                      onClick={() => navigate(item.path)}
+                      onClick={() => handleNavigate(item.path)}
                     >
                       <Icon />
                       <span>{item.label}</span>
@@ -145,7 +172,7 @@ export default function Layout() {
                   <li key={item.path}>
                     <button
                       className={isActive(item.path) ? 'active' : ''}
-                      onClick={() => navigate(item.path)}
+                      onClick={() => handleNavigate(item.path)}
                     >
                       <Icon />
                       <span>{item.label}</span>
@@ -170,7 +197,7 @@ export default function Layout() {
             variant="ghost"
             size="sm"
             fullWidth
-            onClick={logout}
+            onClick={() => { logout(); setSidebarOpen(false); }}
             className="sidebar-logout"
           >
             <HiLogout />

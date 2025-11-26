@@ -208,8 +208,125 @@
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Stock Exit
+   ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
+  .stock-exit-page {
+    padding: var(--spacing-3);
+  }
+
+  .page-header {
+    flex-direction: column;
+    gap: var(--spacing-3);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .page-header h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .page-subtitle {
+    font-size: var(--font-size-sm);
+  }
+
   .exit-content {
     grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+    padding: var(--spacing-4);
+  }
+
+  .exit-instructions {
+    padding: var(--spacing-4);
+    order: 2;
+  }
+
+  .exit-instructions h3 {
+    font-size: var(--font-size-lg);
+  }
+
+  .exit-controls {
+    order: 1;
+    gap: var(--spacing-3);
+  }
+
+  .rfid-status {
+    flex-wrap: wrap;
+    padding: var(--spacing-3);
+    font-size: var(--font-size-xs);
+  }
+
+  .last-rfid {
+    width: 100%;
+    margin-left: 0;
+    margin-top: var(--spacing-2);
+  }
+
+  .success-message {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .success-message svg {
+    margin: 0 auto;
+  }
+
+  .product-info {
+    padding: var(--spacing-3);
+  }
+
+  .product-info h4 {
+    font-size: var(--font-size-base);
+  }
+
+  .product-info p {
+    font-size: var(--font-size-xs);
+  }
+}
+
+@media (max-width: 640px) {
+  .stock-exit-page {
+    padding: var(--spacing-2);
+  }
+
+  .page-header h1 {
+    font-size: var(--font-size-lg);
+  }
+
+  .exit-content {
+    padding: var(--spacing-3);
+  }
+
+  .exit-instructions {
+    padding: var(--spacing-3);
+  }
+
+  .exit-instructions h3 {
+    font-size: var(--font-size-base);
+    margin-bottom: var(--spacing-3);
+  }
+
+  .exit-instructions li {
+    font-size: var(--font-size-sm);
+    padding: var(--spacing-1) 0;
+    padding-left: var(--spacing-5);
+  }
+
+  .exit-instructions li::before {
+    font-size: var(--font-size-base);
+  }
+
+  .rfid-status {
+    padding: var(--spacing-2);
+  }
+
+  .processing-status,
+  .error-message,
+  .success-message {
+    padding: var(--spacing-3);
+  }
+
+  .quantity-modal-content {
+    gap: var(--spacing-3);
   }
 }

@@ -366,3 +366,144 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Dashboard
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .dashboard-header {
+    margin-bottom: var(--spacing-5);
+  }
+
+  .dashboard-header h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  .dashboard-subtitle {
+    font-size: var(--font-size-sm);
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-3);
+    margin-bottom: var(--spacing-5);
+  }
+
+  .metric-content {
+    padding: var(--spacing-4);
+    gap: var(--spacing-3);
+  }
+
+  .metric-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
+
+  .metric-value {
+    font-size: var(--font-size-xl);
+  }
+
+  .metric-label {
+    font-size: var(--font-size-xs);
+  }
+
+  .dashboard-section {
+    margin-bottom: var(--spacing-5);
+  }
+
+  .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-3);
+  }
+
+  .quick-action-btn {
+    padding: var(--spacing-4) !important;
+  }
+
+  .quick-action-btn svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .quick-action-btn span {
+    font-size: var(--font-size-sm);
+  }
+
+  .dashboard-charts-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-4);
+  }
+
+  .prescription-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-2);
+  }
+
+  .prediction-kpis {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--spacing-3);
+  }
+
+  .kpi-value {
+    font-size: var(--font-size-xl);
+  }
+
+  .insight-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-2);
+  }
+
+  .insight-kpis {
+    text-align: left;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-header h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .metric-content {
+    padding: var(--spacing-3);
+  }
+
+  .metric-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+
+  .metric-value {
+    font-size: var(--font-size-lg);
+  }
+
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-action-btn {
+    flex-direction: row !important;
+    padding: var(--spacing-3) !important;
+  }
+
+  .quick-action-btn svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .prediction-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-value {
+    font-size: var(--font-size-lg);
+  }
+
+  .empty-message {
+    padding: var(--spacing-4);
+    font-size: var(--font-size-sm);
+  }
+}

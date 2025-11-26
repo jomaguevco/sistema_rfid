@@ -1,7 +1,20 @@
 import axios from 'axios'
 
+// Detectar automáticamente la URL del backend
+const getApiBaseUrl = () => {
+  const hostname = window.location.hostname
+  const protocol = window.location.protocol // 'http:' o 'https:'
+  
+  // Si estamos accediendo desde localhost, usar el proxy de Vite
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return '/api'
+  }
+  // Si accedemos desde la red local, usar el mismo protocolo (HTTPS)
+  return `${protocol}//${hostname}:3000/api`
+}
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json'
   }

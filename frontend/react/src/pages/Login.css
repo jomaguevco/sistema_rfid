@@ -100,3 +100,72 @@
   animation: slideIn var(--animation-duration-fast) ease-out;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Login
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .login-container {
+    padding: var(--spacing-3);
+  }
+
+  .login-card {
+    padding: var(--spacing-6);
+    max-width: 100%;
+  }
+
+  .login-header {
+    margin-bottom: var(--spacing-6);
+  }
+
+  .login-logo {
+    width: 64px;
+    height: 64px;
+    font-size: 32px;
+    margin-bottom: var(--spacing-4);
+  }
+
+  .login-header h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .login-subtitle {
+    font-size: var(--font-size-sm);
+  }
+
+  .login-form {
+    gap: var(--spacing-4);
+  }
+}
+
+@media (max-width: 640px) {
+  .login-container {
+    padding: var(--spacing-2);
+    align-items: flex-start;
+    padding-top: var(--spacing-8);
+  }
+
+  .login-card {
+    padding: var(--spacing-5);
+    border-radius: var(--border-radius-lg);
+  }
+
+  .login-logo {
+    width: 56px;
+    height: 56px;
+    font-size: 28px;
+  }
+
+  .login-header h1 {
+    font-size: var(--font-size-lg);
+  }
+
+  .login-subtitle {
+    font-size: var(--font-size-xs);
+  }
+
+  .login-error {
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-xs);
+  }
+}
+

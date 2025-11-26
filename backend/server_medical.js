@@ -5,6 +5,8 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
 const socketIo = require('socket.io');
 const path = require('path');
 const helmet = require('helmet');
@@ -43,7 +45,27 @@ const patientsRouter = require('./routes/patients');
 const pharmacistsRouter = require('./routes/pharmacists');
 
 const app = express();
-const server = http.createServer(app);
+
+// Configurar HTTPS con certificados autofirmados para permitir acceso desde móviles
+let server;
+const certsPath = path.join(__dirname, 'certs');
+const keyPath = path.join(certsPath, 'key.pem');
+const certPath = path.join(certsPath, 'cert.pem');
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+  // Usar HTTPS si los certificados existen
+  const httpsOptions = {
+    key: fs.readFileSync(keyPath),
+    cert: fs.readFileSync(certPath)
+  };
+  server = https.createServer(httpsOptions, app);
+  console.log('🔒 Servidor configurado con HTTPS');
+} else {
+  // Fallback a HTTP si no hay certificados
+  server = http.createServer(app);
+  console.log('⚠️  Servidor configurado con HTTP (sin certificados SSL)');
+}
+
 const io = socketIo(server, {
   cors: {
     origin: "*",

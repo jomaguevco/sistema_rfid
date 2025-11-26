@@ -265,3 +265,111 @@ table {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ESTILOS GLOBALES RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Tablet y menor */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+
+  h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  h2 {
+    font-size: var(--font-size-xl);
+  }
+
+  h3 {
+    font-size: var(--font-size-lg);
+  }
+
+  h4 {
+    font-size: var(--font-size-base);
+  }
+
+  /* Mejorar touch targets */
+  button,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  /* Scrollbar más delgado en móvil */
+  *::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+}
+
+/* Solo móvil */
+@media (max-width: 640px) {
+  html {
+    font-size: 13px;
+  }
+
+  h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  h2 {
+    font-size: var(--font-size-lg);
+  }
+
+  h3 {
+    font-size: var(--font-size-base);
+  }
+
+  h4 {
+    font-size: var(--font-size-sm);
+  }
+
+  /* Inputs en móvil */
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* Previene zoom automático en iOS */
+  }
+}
+
+/* Utilidades responsive */
+.hide-mobile {
+  display: block;
+}
+
+.show-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+
+  .show-mobile {
+    display: block !important;
+  }
+}
+
+/* Espaciado responsive */
+.container-responsive {
+  padding: var(--spacing-6);
+}
+
+@media (max-width: 768px) {
+  .container-responsive {
+    padding: var(--spacing-4);
+  }
+}
+
+@media (max-width: 640px) {
+  .container-responsive {
+    padding: var(--spacing-3);
+  }
+}
+

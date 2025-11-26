@@ -108,7 +108,14 @@
   
   /* Layout */
   --sidebar-width: 260px;
+  --sidebar-width-collapsed: 0px;
   --header-height: 64px;
   --container-max-width: 1280px;
+  
+  /* Breakpoints para responsive */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
 }
 

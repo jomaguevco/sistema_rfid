@@ -182,3 +182,51 @@
   opacity: 0.7;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Button
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .btn {
+    /* Área táctil mínima para móvil */
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 36px;
+    padding: var(--spacing-2) var(--spacing-3);
+    font-size: var(--font-size-xs);
+  }
+
+  .btn-md {
+    padding: var(--spacing-3) var(--spacing-4);
+    font-size: var(--font-size-sm);
+  }
+
+  .btn-lg {
+    padding: var(--spacing-3) var(--spacing-5);
+    font-size: var(--font-size-base);
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 640px) {
+  .btn-sm {
+    min-height: 32px;
+    padding: var(--spacing-1) var(--spacing-2);
+  }
+
+  .btn-md {
+    padding: var(--spacing-2) var(--spacing-3);
+  }
+
+  .btn-lg {
+    padding: var(--spacing-2) var(--spacing-4);
+    min-height: 44px;
+  }
+
+  .btn-spinner {
+    width: 14px;
+    height: 14px;
+  }
+}
+

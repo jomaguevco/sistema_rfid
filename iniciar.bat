@@ -85,16 +85,37 @@ timeout /t 2 /nobreak >nul
 REM Iniciar Medichat
 start "MEDICHAT - WhatsApp Bot - Puerto 3001" cmd /k "cd /d C:\Users\gonfr\Escritorio\medichat && echo ======================================== && echo   MEDICHAT - WhatsApp Bot && echo   Puerto: 3001 && echo ======================================== && echo. && echo Generando codigo QR... && echo Escanea el QR que aparecera en la consola o en qr\qr.png && echo. && node src/app.js"
 
+REM Obtener IP local para acceso desde moviles
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+    for /f "tokens=1" %%b in ("%%a") do set LOCAL_IP=%%b
+    goto :got_ip
+)
+:got_ip
+
 echo.
 echo ========================================
 echo   SERVICIOS INICIADOS
 echo ========================================
 echo.
-echo    Servicios activos:
+echo    Servicios activos (desde esta PC):
 echo    - Backend RFID:  http://localhost:3000
-echo    - Frontend RFID: http://localhost:5173
+echo    - Frontend RFID: https://localhost:5173
 echo    - Medichat Bot:  http://localhost:3001
 echo.
+if defined LOCAL_IP (
+echo    Acceso desde MOVIL (misma red WiFi):
+echo    - Frontend: https://%LOCAL_IP%:5173
+echo    - Backend:  http://%LOCAL_IP%:3000
+echo.
+echo    PARA USAR LA CAMARA EN MOVIL:
+echo    1. Abre https://%LOCAL_IP%:5173 en tu navegador movil
+echo    2. Acepta la advertencia del certificado (es seguro)
+echo    3. Ahora podras usar la camara para escanear QR
+echo.
+echo    NOTA: El sistema detecta automaticamente la IP.
+echo    Si cambias de red WiFi, solo reinicia el sistema.
+echo.
+)
 echo    IMPORTANTE:
 echo    - Escanea el QR de WhatsApp en la ventana de Medichat
 echo    - Espera a ver: "WhatsApp conectado exitosamente"

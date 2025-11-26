@@ -93,3 +93,55 @@
   background-color: var(--color-gray-50);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Card
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-3);
+    padding: var(--spacing-3);
+  }
+
+  .card-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .card-body {
+    padding: var(--spacing-3);
+  }
+
+  .card-footer {
+    padding: var(--spacing-3);
+  }
+
+  .card-title {
+    font-size: var(--font-size-base);
+  }
+}
+
+@media (max-width: 640px) {
+  .card-header {
+    padding: var(--spacing-2);
+  }
+
+  .card-body {
+    padding: var(--spacing-2);
+  }
+
+  .card-footer {
+    padding: var(--spacing-2);
+  }
+
+  .card-title {
+    font-size: var(--font-size-sm);
+  }
+
+  .card-subtitle {
+    font-size: var(--font-size-xs);
+  }
+}
+

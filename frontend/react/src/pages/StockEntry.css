@@ -208,18 +208,125 @@
   font-size: 0.9rem;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE - Stock Entry
+   ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   .stock-entry-page {
-    padding: 1rem;
+    padding: var(--spacing-3);
+  }
+
+  .stock-entry-page .page-header {
+    flex-direction: column;
+    gap: var(--spacing-3);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .stock-entry-page .page-header h1 {
+    font-size: var(--font-size-xl);
+  }
+
+  .stock-entry-page .page-subtitle {
+    font-size: var(--font-size-sm);
+  }
+
+  .stock-entry-page .entry-content {
+    padding: var(--spacing-3);
+  }
+
+  .stock-entry-page .product-selection-section,
+  .stock-entry-page .rfid-scan-section,
+  .stock-entry-page .batch-form-section,
+  .stock-entry-page .pending-entries-section {
+    padding: var(--spacing-3);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .stock-entry-page .product-selection-section h3,
+  .stock-entry-page .rfid-scan-section h3,
+  .stock-entry-page .batch-form-section h3,
+  .stock-entry-page .pending-entries-section h3 {
+    font-size: var(--font-size-base);
   }
 
   .stock-entry-page .batch-form {
     grid-template-columns: 1fr;
+    gap: var(--spacing-3);
+  }
+
+  .stock-entry-page .batch-actions {
+    flex-direction: column;
+  }
+
+  .stock-entry-page .batch-actions .btn {
+    width: 100%;
   }
 
   .stock-entry-page .product-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.5rem;
+    gap: var(--spacing-2);
+  }
+
+  .stock-entry-page .selected-product {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-3);
+  }
+
+  .stock-entry-page .products-list {
+    max-height: 200px;
+  }
+}
+
+@media (max-width: 640px) {
+  .stock-entry-page {
+    padding: var(--spacing-2);
+  }
+
+  .stock-entry-page .page-header h1 {
+    font-size: var(--font-size-lg);
+  }
+
+  .stock-entry-page .entry-content {
+    padding: var(--spacing-2);
+  }
+
+  .stock-entry-page .product-selection-section,
+  .stock-entry-page .rfid-scan-section,
+  .stock-entry-page .batch-form-section,
+  .stock-entry-page .pending-entries-section {
+    padding: var(--spacing-2);
+  }
+
+  .stock-entry-page .product-selection-section h3,
+  .stock-entry-page .rfid-scan-section h3,
+  .stock-entry-page .batch-form-section h3,
+  .stock-entry-page .pending-entries-section h3 {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--spacing-3);
+  }
+
+  .stock-entry-page .product-item {
+    padding: var(--spacing-2);
+  }
+
+  .stock-entry-page .product-item strong {
+    font-size: var(--font-size-sm);
+  }
+
+  .stock-entry-page .product-item .product-detail {
+    font-size: var(--font-size-xs);
+  }
+
+  .stock-entry-page .rfid-status {
+    padding: var(--spacing-2);
+    font-size: var(--font-size-xs);
+  }
+
+  .stock-entry-page .error-message,
+  .stock-entry-page .success-message {
+    padding: var(--spacing-3);
+    font-size: var(--font-size-sm);
   }
 }

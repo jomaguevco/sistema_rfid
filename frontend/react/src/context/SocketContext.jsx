@@ -4,6 +4,20 @@ import { useAuth } from './AuthContext'
 
 const SocketContext = createContext(null)
 
+// Detectar automáticamente la URL del backend
+const getBackendUrl = () => {
+  const hostname = window.location.hostname
+  const protocol = window.location.protocol // 'http:' o 'https:'
+  
+  // Si estamos accediendo desde localhost
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    // Usar el mismo protocolo que la página
+    return `${protocol}//localhost:3000`
+  }
+  // Si accedemos desde otro dispositivo en la red, usar el mismo protocolo (HTTPS)
+  return `${protocol}//${hostname}:3000`
+}
+
 export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null)
   const [connected, setConnected] = useState(false)
@@ -22,7 +36,9 @@ export function SocketProvider({ children }) {
 
     try {
       const token = localStorage.getItem('token')
-      const newSocket = io('http://localhost:3000', {
+      const backendUrl = getBackendUrl()
+      console.log('🔌 Conectando Socket.IO a:', backendUrl)
+      const newSocket = io(backendUrl, {
         auth: {
           token
         },
