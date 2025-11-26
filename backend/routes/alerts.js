@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database_medical');
+const { authenticateToken } = require('../middleware/auth');
 
 /**
  * GET /api/alerts
- * Obtener todas las alertas activas
+ * Obtener todas las alertas activas (requiere autenticación)
  */
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const alerts = await db.getActiveAlerts();
     res.json({
@@ -43,9 +44,9 @@ router.post('/check', async (req, res) => {
 
 /**
  * PUT /api/alerts/:id/resolve
- * Marcar una alerta como resuelta
+ * Marcar una alerta como resuelta (requiere autenticación)
  */
-router.put('/:id/resolve', async (req, res) => {
+router.put('/:id/resolve', authenticateToken, async (req, res) => {
   try {
     const alertId = parseInt(req.params.id);
     await db.pool.execute(

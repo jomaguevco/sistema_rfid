@@ -87,6 +87,13 @@ export default function StockExit() {
     }
   }
 
+  // Constantes de validación (sincronizadas con backend)
+  const VALIDATION_RULES = {
+    MIN_QUANTITY: 1,
+    MAX_QUANTITY_PER_OPERATION: 10000,
+    ALLOW_EXPIRED_BATCH_DISPATCH: false
+  }
+
   const processExit = async () => {
     if (!currentBatch || !currentProduct) return
 
@@ -105,15 +112,26 @@ export default function StockExit() {
         }
       }
       const area = areaIdValue
+
+      // VALIDACIÓN: No permitir salida de lotes vencidos
+      if (!VALIDATION_RULES.ALLOW_EXPIRED_BATCH_DISPATCH && isExpired) {
+        setError('El lote está vencido. No se permite despachar medicamentos vencidos.')
+        return
+      }
       
       // Validar cantidad
-      if (qty <= 0) {
+      if (qty < VALIDATION_RULES.MIN_QUANTITY) {
         setError('La cantidad debe ser mayor a 0')
+        return
+      }
+
+      if (qty > VALIDATION_RULES.MAX_QUANTITY_PER_OPERATION) {
+        setError(`La cantidad máxima permitida es ${VALIDATION_RULES.MAX_QUANTITY_PER_OPERATION} unidades`)
         return
       }
       
       if (qty > currentBatch.quantity) {
-        setError(`Cantidad excede el stock disponible (${currentBatch.quantity} unidades disponibles)`)
+        setError(`Stock insuficiente. Disponible: ${currentBatch.quantity} unidades`)
         return
       }
       
@@ -310,7 +328,7 @@ export default function StockExit() {
               variant="primary"
               onClick={processExit}
               loading={processing}
-              disabled={processing || !currentBatch || quantity <= 0}
+              disabled={processing || !currentBatch || quantity <= 0 || isExpired}
             >
               Confirmar Retiro
             </Button>
@@ -354,8 +372,8 @@ export default function StockExit() {
             </div>
 
             {isExpired && (
-              <div className="error-message" style={{ marginBottom: '1rem', backgroundColor: '#fee', padding: '0.75rem', borderRadius: '4px' }}>
-                <HiExclamation /> <strong>Advertencia:</strong> Este producto está vencido. No se recomienda su uso.
+              <div className="error-message" style={{ marginBottom: '1rem', backgroundColor: '#fee', padding: '0.75rem', borderRadius: '4px', border: '1px solid #f5c6cb' }}>
+                <HiExclamation /> <strong>Error:</strong> El lote está vencido. No se permite despachar medicamentos vencidos.
               </div>
             )}
 

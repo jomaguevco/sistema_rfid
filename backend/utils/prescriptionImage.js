@@ -13,7 +13,7 @@ try {
 }
 
 /**
- * Generar imagen de receta médica
+ * Generar imagen de receta médica con formato institucional
  * @param {Object} prescriptionData - Datos de la receta
  * @param {Object} options - Opciones de generación
  * @returns {Promise<Buffer>} - Buffer de la imagen PNG
@@ -25,24 +25,27 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
 
   const {
     prescription_code,
+    receipt_number,
     patient_name,
     patient_id_number,
+    patient_phone,
     doctor_name,
     doctor_license,
     prescription_date,
+    specialty,
+    service,
+    attention_type,
     items = [],
     notes
   } = prescriptionData;
 
   // Configuración del canvas
   const width = options.width || 800;
-  const height = options.height || 1600;
+  const baseHeight = 1200;
+  const itemHeight = 180; // Altura estimada por medicamento
+  const height = Math.max(baseHeight, baseHeight + (items.length - 2) * itemHeight);
   const padding = 40;
-  const lineHeight = 45;
-  const titleSize = 36;
-  const headingSize = 26;
-  const bodySize = 20;
-  const smallSize = 16;
+  const lineHeight = 28;
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
@@ -51,176 +54,231 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0, 0, width, height);
 
-  // Configurar fuente (usar fuente por defecto del sistema)
   let y = padding;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENCABEZADO - DATOS GENERALES DEL DOCUMENTO
+  // ═══════════════════════════════════════════════════════════════════════════
+
   // Título principal
-  ctx.fillStyle = '#1a1a1a';
-  ctx.font = `bold ${titleSize}px Arial`;
+  ctx.fillStyle = '#1a365d';
+  ctx.font = 'bold 28px Arial';
   ctx.textAlign = 'center';
   ctx.fillText('RECETA MÉDICA', width / 2, y);
+  y += lineHeight * 1.5;
+
+  // Subtítulo
+  ctx.font = '16px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Orden de Medicamentos', width / 2, y);
   y += lineHeight * 2;
 
-  // Línea separadora (más suave)
-  ctx.strokeStyle = '#E0E0E0';
+  // Línea separadora
+  ctx.strokeStyle = '#2b6cb0';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  y += lineHeight * 2;
+  y += lineHeight;
 
-  // Código de receta
-  ctx.font = `bold ${headingSize}px Arial`;
+  // Datos del documento en dos columnas
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#2c3e50';
-  if (prescription_code) {
-    ctx.fillText(`Código: ${prescription_code}`, padding, y);
-    y += lineHeight * 1.2;
-  }
+  ctx.font = '14px Arial';
+  const col1X = padding;
+  const col2X = width / 2 + 20;
 
-  // Fecha
-  if (prescription_date) {
-    const date = new Date(prescription_date);
-    const formattedDate = date.toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    ctx.font = `${bodySize}px Arial`;
-    ctx.fillStyle = '#555555';
-    ctx.fillText(`Fecha: ${formattedDate}`, padding, y);
-    y += lineHeight * 2;
-  }
+  // Columna 1
+  ctx.fillStyle = '#718096';
+  ctx.fillText('Especialidad:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(specialty || 'General', col1X + 85, y);
+  
+  // Columna 2
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#718096';
+  ctx.fillText('N° Orden:', col2X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(receipt_number || prescription_code || 'N/A', col2X + 70, y);
+  y += lineHeight;
 
-  // Separador
-  ctx.strokeStyle = '#E0E0E0';
+  // Servicio y Fecha
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#718096';
+  ctx.fillText('Servicio:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(service || 'Farmacia Consulta Externa', col1X + 60, y);
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#718096';
+  ctx.fillText('Fecha:', col2X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  const formattedDate = prescription_date 
+    ? new Date(prescription_date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  ctx.fillText(formattedDate, col2X + 50, y);
+  y += lineHeight;
+
+  // Tipo de atención
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#718096';
+  ctx.fillText('Tipo Atención:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(attention_type || 'Consulta Externa', col1X + 95, y);
+  y += lineHeight * 1.5;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECCIÓN PACIENTE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Fondo de sección
+  ctx.fillStyle = '#ebf8ff';
+  ctx.fillRect(padding - 10, y - 5, width - (padding * 2) + 20, lineHeight * 3 + 15);
+
+  ctx.fillStyle = '#2b6cb0';
+  ctx.font = 'bold 16px Arial';
+  ctx.fillText('DATOS DEL PACIENTE', col1X, y + lineHeight * 0.7);
+  y += lineHeight * 1.3;
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Nombre:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(patient_name || '___________________________', col1X + 60, y);
+  y += lineHeight;
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('DNI:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(patient_id_number || '_______________', col1X + 35, y);
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Teléfono:', col2X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(patient_phone || '_______________', col2X + 65, y);
+  y += lineHeight * 2;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECCIÓN MEDICAMENTOS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  ctx.fillStyle = '#1a365d';
+  ctx.font = 'bold 18px Arial';
+  ctx.fillText('MEDICAMENTOS INDICADOS', col1X, y);
+  y += lineHeight * 1.2;
+
+  // Línea bajo título
+  ctx.strokeStyle = '#2b6cb0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padding, y);
   ctx.lineTo(width - padding, y);
   ctx.stroke();
-  y += lineHeight * 2;
+  y += lineHeight * 0.8;
 
-  // Información del paciente
-  ctx.font = `bold ${headingSize}px Arial`;
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillText('PACIENTE', padding, y);
-  y += lineHeight * 1.5;
-
-  ctx.font = `${bodySize}px Arial`;
-  ctx.fillStyle = '#2c3e50';
-  if (patient_name) {
-    ctx.fillText(`Nombre: ${patient_name}`, padding + 20, y);
-    y += lineHeight * 1.3;
-  }
-  if (patient_id_number) {
-    ctx.fillText(`DNI: ${patient_id_number}`, padding + 20, y);
-    y += lineHeight * 1.3;
-  }
-  y += lineHeight * 1.5;
-
-  // Información del médico
-  ctx.font = `bold ${headingSize}px Arial`;
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillText('MÉDICO', padding, y);
-  y += lineHeight * 1.5;
-
-  ctx.font = `${bodySize}px Arial`;
-  ctx.fillStyle = '#2c3e50';
-  if (doctor_name) {
-    ctx.fillText(`Nombre: ${doctor_name}`, padding + 20, y);
-    y += lineHeight * 1.3;
-  }
-  if (doctor_license) {
-    ctx.fillText(`Colegiatura: ${doctor_license}`, padding + 20, y);
-    y += lineHeight * 1.3;
-  }
-  y += lineHeight * 1.5;
-
-  // Separador
-  ctx.strokeStyle = '#E0E0E0';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padding, y);
-  ctx.lineTo(width - padding, y);
-  ctx.stroke();
-  y += lineHeight * 2;
-
-  // Medicamentos
   if (items && items.length > 0) {
-    ctx.font = `bold ${headingSize}px Arial`;
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillText('MEDICAMENTOS', padding, y);
-    y += lineHeight * 2;
-
-    ctx.font = `${bodySize}px Arial`;
-    ctx.fillStyle = '#2c3e50';
-
     items.forEach((item, index) => {
+      // Fondo alternado para cada medicamento
+      if (index % 2 === 0) {
+        ctx.fillStyle = '#f7fafc';
+        ctx.fillRect(padding - 10, y - 10, width - (padding * 2) + 20, itemHeight - 20);
+      }
+
       // Número y nombre del medicamento
-      ctx.font = `bold ${bodySize + 2}px Arial`;
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillText(`${index + 1}. ${item.product_name || 'Medicamento'}`, padding + 20, y);
-      y += lineHeight * 1.5;
-
-      ctx.font = `${smallSize}px Arial`;
-      ctx.fillStyle = '#555555';
-      const itemPadding = padding + 40;
-      const maxWidth = width - itemPadding - padding;
-
-      if (item.active_ingredient) {
-        const text = `   Principio Activo: ${item.active_ingredient}`;
-        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 12;
-      }
-
-      if (item.concentration) {
-        const text = `   Concentración: ${item.concentration}`;
-        y = wrapText(ctx, text, itemPadding, y, maxWidth, smallSize) + 12;
-      }
-
-      const qtyText = `   Cantidad Requerida: ${item.quantity_required || 0} unidades`;
-      y = wrapText(ctx, qtyText, itemPadding, y, maxWidth, smallSize) + 12;
-
-      if (item.quantity_dispensed !== undefined) {
-        const dispensedText = `   Despachado: ${item.quantity_dispensed || 0} unidades`;
-        y = wrapText(ctx, dispensedText, itemPadding, y, maxWidth, smallSize) + 12;
-      }
-
-      if (item.instructions) {
-        const instructionsText = `   Instrucciones: ${item.instructions}`;
-        y = wrapText(ctx, instructionsText, itemPadding, y, maxWidth, smallSize) + 12;
-      }
-
+      ctx.fillStyle = '#2b6cb0';
+      ctx.font = 'bold 16px Arial';
+      const itemLetter = String.fromCharCode(65 + index); // A, B, C...
+      ctx.fillText(`${itemLetter})`, col1X, y + 5);
+      
+      ctx.fillStyle = '#1a202c';
+      ctx.font = 'bold 15px Arial';
+      const productName = item.product_name || 'Medicamento';
+      const concentration = item.concentration ? ` ${item.concentration}` : '';
+      ctx.fillText(`${productName}${concentration}`, col1X + 25, y + 5);
       y += lineHeight * 1.2;
+
+      // Detalles del medicamento en grid
+      const detailX = col1X + 25;
+      ctx.font = '13px Arial';
+
+      // Fila 1: Cantidad y Vía
+      ctx.fillStyle = '#718096';
+      ctx.fillText('Cantidad:', detailX, y);
+      ctx.fillStyle = '#1a202c';
+      ctx.font = 'bold 13px Arial';
+      const qty = item.quantity_required || 0;
+      ctx.fillText(`${qty} unidades`, detailX + 65, y);
+
+      ctx.font = '13px Arial';
+      ctx.fillStyle = '#718096';
+      ctx.fillText('Vía:', detailX + 200, y);
+      ctx.fillStyle = '#1a202c';
+      ctx.font = 'bold 13px Arial';
+      ctx.fillText(item.administration_route || 'Oral', detailX + 230, y);
+      y += lineHeight;
+
+      // Fila 2: Dosis y Duración
+      ctx.font = '13px Arial';
+      ctx.fillStyle = '#718096';
+      ctx.fillText('Dosis:', detailX, y);
+      ctx.fillStyle = '#1a202c';
+      ctx.font = 'bold 13px Arial';
+      ctx.fillText(item.dosage || item.instructions || '_______________', detailX + 45, y);
+
+      ctx.font = '13px Arial';
+      ctx.fillStyle = '#718096';
+      ctx.fillText('Duración:', detailX + 300, y);
+      ctx.fillStyle = '#1a202c';
+      ctx.font = 'bold 13px Arial';
+      ctx.fillText(item.duration || '_______________', detailX + 360, y);
+      y += lineHeight;
+
+      // Fila 3: Código (si existe)
+      if (item.item_code) {
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#718096';
+        ctx.fillText('Código:', detailX, y);
+        ctx.fillStyle = '#1a202c';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(item.item_code, detailX + 55, y);
+        y += lineHeight;
+      }
+
+      // Instrucciones adicionales
+      if (item.instructions && item.instructions !== item.dosage) {
+        ctx.font = 'italic 12px Arial';
+        ctx.fillStyle = '#4a5568';
+        const instructionsText = `Indicaciones: ${item.instructions}`;
+        y = wrapText(ctx, instructionsText, detailX, y, width - detailX - padding - 20, 12) + 8;
+      }
+
+      y += lineHeight * 0.8;
     });
-  }
-
-  // Notas adicionales
-  if (notes) {
-    y += lineHeight * 1.5;
-    ctx.strokeStyle = '#E0E0E0';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
+  } else {
+    ctx.font = 'italic 14px Arial';
+    ctx.fillStyle = '#718096';
+    ctx.fillText('No hay medicamentos registrados', col1X, y);
     y += lineHeight * 2;
-
-    ctx.font = `bold ${headingSize}px Arial`;
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillText('NOTAS', padding, y);
-    y += lineHeight * 1.5;
-
-    ctx.font = `${bodySize}px Arial`;
-    ctx.fillStyle = '#2c3e50';
-    const maxWidth = width - padding * 2;
-    y = wrapText(ctx, notes, padding, y, maxWidth, bodySize) + 15;
   }
 
-  // Pie de página con código QR mencionado
-  y = height - padding - lineHeight * 2;
-  ctx.strokeStyle = '#CCCCCC';
+  y += lineHeight;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECCIÓN MÉDICO Y FIRMA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Línea separadora
+  ctx.strokeStyle = '#cbd5e0';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(padding, y);
@@ -228,16 +286,85 @@ async function generatePrescriptionImage(prescriptionData, options = {}) {
   ctx.stroke();
   y += lineHeight * 1.5;
 
-  ctx.font = `${smallSize}px Arial`;
-  ctx.fillStyle = '#666666';
+  ctx.fillStyle = '#1a365d';
+  ctx.font = 'bold 16px Arial';
+  ctx.fillText('MÉDICO RESPONSABLE', col1X, y);
+  y += lineHeight * 1.2;
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Nombre:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(doctor_name || '___________________________', col1X + 60, y);
+  y += lineHeight;
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Colegiatura:', col1X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(doctor_license || '_______________', col1X + 80, y);
+
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#4a5568';
+  ctx.fillText('Especialidad:', col2X, y);
+  ctx.fillStyle = '#1a202c';
+  ctx.font = 'bold 14px Arial';
+  ctx.fillText(specialty || '_______________', col2X + 90, y);
+  y += lineHeight * 2.5;
+
+  // Línea de firma
+  ctx.strokeStyle = '#1a202c';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const signatureWidth = 200;
+  const signatureX = (width - signatureWidth) / 2;
+  ctx.moveTo(signatureX, y);
+  ctx.lineTo(signatureX + signatureWidth, y);
+  ctx.stroke();
+  y += lineHeight * 0.8;
+
+  ctx.font = '12px Arial';
+  ctx.fillStyle = '#4a5568';
   ctx.textAlign = 'center';
-  if (prescription_code) {
-    ctx.fillText(`Código QR: ${prescription_code}`, width / 2, y);
-  }
+  ctx.fillText('Firma y Sello del Médico', width / 2, y);
+  y += lineHeight * 2;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PIE DE PÁGINA - CÓDIGO QR Y CÓDIGO DE RECETA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Línea separadora final
+  ctx.strokeStyle = '#2b6cb0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(padding, y);
+  ctx.lineTo(width - padding, y);
+  ctx.stroke();
+  y += lineHeight;
+
+  // Código de receta centrado
+  ctx.font = 'bold 14px Arial';
+  ctx.fillStyle = '#2b6cb0';
+  ctx.textAlign = 'center';
+  ctx.fillText(`CÓDIGO: ${prescription_code || 'N/A'}`, width / 2, y);
+  y += lineHeight;
+
+  // Nota sobre el QR
+  ctx.font = '11px Arial';
+  ctx.fillStyle = '#718096';
+  ctx.fillText('Escanee el código QR para verificar la autenticidad de esta receta', width / 2, y);
+  y += lineHeight;
+
+  // Fecha y hora de generación
+  const now = new Date();
+  const printDateTime = now.toLocaleDateString('es-ES') + ' - ' + now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  ctx.font = '10px Arial';
+  ctx.fillStyle = '#a0aec0';
+  ctx.fillText(`Impreso: ${printDateTime}`, width / 2, y);
 
   // Convertir a buffer
-  // Optimizar imagen: convertir a JPEG con calidad 85% para reducir tamaño
-  // Si el PNG es muy grande, usar JPEG
   const pngBuffer = canvas.toBuffer('image/png');
   const pngSizeMB = pngBuffer.length / (1024 * 1024);
   
@@ -275,38 +402,13 @@ function wrapText(ctx, text, x, y, maxWidth, fontSize) {
     if (testWidth > maxWidth && n > 0) {
       ctx.fillText(line, x, currentY);
       line = words[n] + ' ';
-      currentY += fontSize + 8;
+      currentY += fontSize + 6;
     } else {
       line = testLine;
     }
   }
   ctx.fillText(line, x, currentY);
   return currentY;
-}
-
-/**
- * Calcular altura del texto envuelto
- */
-function getTextHeight(ctx, text, maxWidth, fontSize) {
-  ctx.font = `${fontSize}px Arial`;
-  const words = text.split(' ');
-  let line = '';
-  let lines = 1;
-
-  for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n] + ' ';
-    const metrics = ctx.measureText(testLine);
-    const testWidth = metrics.width;
-
-    if (testWidth > maxWidth && n > 0) {
-      line = words[n] + ' ';
-      lines++;
-    } else {
-      line = testLine;
-    }
-  }
-
-  return lines * (fontSize + 5);
 }
 
 /**
@@ -324,4 +426,3 @@ module.exports = {
   generatePrescriptionImage,
   generatePrescriptionImageBase64
 };
-

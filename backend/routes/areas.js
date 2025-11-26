@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database_medical');
+const { authenticateToken } = require('../middleware/auth');
 
 /**
  * GET /api/areas
@@ -96,9 +97,9 @@ router.post('/', async (req, res) => {
 
 /**
  * PUT /api/areas/:id
- * Actualizar un área
+ * Actualizar un área (requiere autenticación)
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const areaId = parseInt(req.params.id);
     const { name, description, is_active } = req.body;
@@ -163,9 +164,9 @@ router.put('/:id', async (req, res) => {
 
 /**
  * DELETE /api/areas/:id
- * Eliminar un área
+ * Eliminar un área (requiere autenticación)
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const areaId = parseInt(req.params.id);
     

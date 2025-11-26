@@ -122,6 +122,12 @@ export default function StockEntry() {
     stopRFID()
   }
 
+  // Constantes de validación (sincronizadas con backend)
+  const VALIDATION_RULES = {
+    MIN_QUANTITY: 1,
+    MAX_QUANTITY_PER_OPERATION: 10000
+  }
+
   const handleAddBatch = async () => {
     // Validar campos
     const newErrors = {}
@@ -130,14 +136,27 @@ export default function StockEntry() {
     }
     if (!batchData.expiry_date) {
       newErrors.expiry_date = 'La fecha de vencimiento es requerida'
-    }
-      // Validar que quantity sea un número válido
-      const quantityValue = parseInt(batchData.quantity)
-      if (!quantityValue || quantityValue < 1 || isNaN(quantityValue)) {
-        newErrors.quantity = 'La cantidad debe ser un número mayor a 0'
+    } else {
+      // VALIDACIÓN: La fecha de vencimiento no puede ser pasada
+      const expiryDate = new Date(batchData.expiry_date)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      if (expiryDate < today) {
+        newErrors.expiry_date = 'La fecha de vencimiento no puede ser anterior a hoy'
       }
-      if (!scannedRfid) {
-        newErrors.rfid = 'Debes escanear un IDP primero'
+    }
+    
+    // Validar que quantity sea un número válido
+    const quantityValue = parseInt(batchData.quantity)
+    if (!quantityValue || quantityValue < VALIDATION_RULES.MIN_QUANTITY || isNaN(quantityValue)) {
+      newErrors.quantity = 'La cantidad debe ser un número mayor a 0'
+    } else if (quantityValue > VALIDATION_RULES.MAX_QUANTITY_PER_OPERATION) {
+      newErrors.quantity = `La cantidad máxima permitida es ${VALIDATION_RULES.MAX_QUANTITY_PER_OPERATION} unidades`
+    }
+    
+    if (!scannedRfid) {
+      newErrors.rfid = 'Debes escanear un IDP primero'
     }
 
     if (Object.keys(newErrors).length > 0) {

@@ -4,7 +4,6 @@ import api from '../../services/api'
 import Modal from '../common/Modal'
 import Badge from '../common/Badge'
 import Loading from '../common/Loading'
-import Table from '../common/Table'
 import Button from '../common/Button'
 import Input from '../common/Input'
 import { HiCheckCircle, HiXCircle, HiPhone } from 'react-icons/hi'
@@ -69,40 +68,32 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
   // Normalizar número de teléfono con prefijo de Perú (51)
   const normalizePhoneNumber = (phone) => {
     if (!phone) return ''
-    // Eliminar espacios, guiones, paréntesis, etc.
     const cleaned = phone.replace(/[^0-9]/g, '')
     
-    // Si ya tiene prefijo 51 y tiene 11 o 12 dígitos, mantenerlo
     if (cleaned.startsWith('51') && (cleaned.length === 11 || cleaned.length === 12)) {
       return cleaned
     }
     
-    // Si tiene 9 dígitos y empieza con 9 (número móvil peruano), agregar prefijo 51
     if (cleaned.length === 9 && cleaned.startsWith('9')) {
       return `51${cleaned}`
     }
     
-    // Si tiene 10 dígitos y empieza con 9, tomar los últimos 9 y agregar prefijo
     if (cleaned.length === 10 && cleaned.startsWith('9')) {
       return `51${cleaned.substring(1)}`
     }
     
-    // Si tiene 11 dígitos y empieza con 519, ya está bien formateado
     if (cleaned.length === 11 && cleaned.startsWith('519')) {
       return cleaned
     }
     
-    // Si tiene 12 dígitos y empieza con 51, ya está bien formateado
     if (cleaned.length === 12 && cleaned.startsWith('51')) {
       return cleaned
     }
     
-    // Si tiene 8 dígitos o menos, no es válido (retornar tal cual para que la validación lo detecte)
     if (cleaned.length <= 8) {
       return cleaned
     }
     
-    // Para otros casos, intentar extraer los últimos 9 dígitos si empiezan con 9
     if (cleaned.length > 9) {
       const last9 = cleaned.slice(-9)
       if (last9.startsWith('9')) {
@@ -110,11 +101,9 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
       }
     }
     
-    // Retornar tal cual si no cumple ningún formato conocido
     return cleaned
   }
 
-  // Validar número de teléfono peruano
   const validatePhoneNumber = (phone) => {
     if (!phone || phone.trim() === '') {
       return 'El número de teléfono es requerido'
@@ -122,7 +111,6 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
     
     const cleaned = phone.replace(/[^0-9]/g, '')
     
-    // Debe tener entre 9 y 12 dígitos
     if (cleaned.length < 9) {
       return 'El número debe tener al menos 9 dígitos (formato: 9XXXXXXXX)'
     }
@@ -130,46 +118,40 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
       return 'El número es demasiado largo (máximo 12 dígitos con prefijo)'
     }
     
-    // Si tiene 9 dígitos, debe empezar con 9 (número móvil peruano)
     if (cleaned.length === 9) {
       if (!cleaned.startsWith('9')) {
         return 'El número móvil peruano debe empezar con 9 (formato: 9XXXXXXXX)'
       }
-      return null // Válido
+      return null
     }
     
-    // Si tiene 10 dígitos, debe empezar con 9
     if (cleaned.length === 10) {
       if (!cleaned.startsWith('9')) {
         return 'El número debe empezar con 9'
       }
-      return null // Válido (se normalizará)
+      return null
     }
     
-    // Si tiene 11 dígitos, debe empezar con 519 (51 + 9XXXXXXXX)
     if (cleaned.length === 11) {
       if (!cleaned.startsWith('519')) {
         return 'El número con prefijo debe empezar con 519 (formato: 519XXXXXXXX)'
       }
-      return null // Válido
+      return null
     }
     
-    // Si tiene 12 dígitos, debe empezar con 51
     if (cleaned.length === 12) {
       if (!cleaned.startsWith('51')) {
         return 'El número con prefijo debe empezar con 51'
       }
-      // Verificar que después del 51 tenga un 9
       if (cleaned[2] !== '9') {
         return 'El número móvil debe empezar con 519 después del prefijo'
       }
-      return null // Válido
+      return null
     }
     
     return null
   }
 
-  // Mutación para enviar a WhatsApp
   const sendWhatsAppMutation = useMutation({
     mutationFn: async (phone) => {
       const response = await api.post(`/prescriptions/${prescription.id}/send-whatsapp`, {
@@ -178,7 +160,6 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
       return response.data
     },
     onSuccess: () => {
-      // Cerrar modal después de 2 segundos para que el usuario vea el mensaje de éxito
       setTimeout(() => {
         setShowWhatsAppModal(false)
         setPhoneNumber('')
@@ -193,15 +174,12 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
   })
 
   const handleOpenWhatsAppModal = () => {
-    // Obtener teléfono del paciente desde los datos de la receta
     const patientPhone = fullPrescription?.patient_phone || null
     
     if (patientPhone) {
-      // Si hay teléfono del paciente, normalizarlo y prellenarlo
       const normalized = normalizePhoneNumber(patientPhone)
       setPhoneNumber(normalized)
     } else {
-      // Si no hay teléfono, dejar vacío para que el usuario lo ingrese
       setPhoneNumber('')
     }
     
@@ -216,173 +194,227 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
       return
     }
 
-    // Normalizar el número antes de enviar
     const normalizedPhone = normalizePhoneNumber(phoneNumber)
     sendWhatsAppMutation.mutate(normalizedPhone)
+  }
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-'
+    return new Date(dateStr).toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    })
   }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Detalle de Receta"
+      title="Detalle de Receta Médica"
       size="xl"
     >
       {isLoading ? (
         <Loading text="Cargando detalles..." />
       ) : fullPrescription ? (
         <div className="prescription-detail">
-          <div className="detail-section prescription-code-section">
-            <div className="prescription-code-display">
-              <label>Código de Receta:</label>
-              <Badge variant="info" size="lg" className="prescription-code-badge">
-                {fullPrescription.prescription_code}
+          {/* ENCABEZADO INSTITUCIONAL */}
+          <div className="prescription-header">
+            <div className="prescription-title">
+              <h2>RECETA MÉDICA</h2>
+              <span className="prescription-subtitle">Orden de Medicamentos</span>
+            </div>
+            <div className="prescription-meta">
+              <Badge variant={getStatusVariant(fullPrescription.status)} size="lg">
+                {getStatusLabel(fullPrescription.status)}
               </Badge>
             </div>
-            {fullPrescription.status && (
-              <div className="prescription-status-display">
-                <label>Estado:</label>
-                <Badge variant={getStatusVariant(fullPrescription.status)} size="md">
-                  {getStatusLabel(fullPrescription.status)}
-                </Badge>
-              </div>
-            )}
-            {fullPrescription.prescription_date && (
-              <div className="prescription-date-display">
-                <label>Fecha de Emisión:</label>
-                <span>{new Date(fullPrescription.prescription_date).toLocaleDateString('es-ES')}</span>
-              </div>
-            )}
           </div>
 
-          <div className="detail-section">
-            <h3>Información del Paciente</h3>
-            <div className="detail-grid">
-              <div>
-                <label>Nombre:</label>
-                <span>{fullPrescription.patient_name}</span>
+          {/* DATOS GENERALES DEL DOCUMENTO */}
+          <div className="detail-section document-info">
+            <div className="info-grid info-grid-4">
+              <div className="info-item">
+                <label>N° Orden:</label>
+                <span className="info-value highlight">{fullPrescription.receipt_number || fullPrescription.prescription_code}</span>
               </div>
-              {(fullPrescription.patient_id_number || fullPrescription.patient_id) && (
-                <div>
-                  <label>DNI/ID:</label>
-                  <span>{fullPrescription.patient_id_number || fullPrescription.patient_id}</span>
-                </div>
-              )}
+              <div className="info-item">
+                <label>Fecha Emisión:</label>
+                <span className="info-value">{formatDate(fullPrescription.prescription_date)}</span>
+              </div>
+              <div className="info-item">
+                <label>Especialidad:</label>
+                <span className="info-value">{fullPrescription.specialty || 'General'}</span>
+              </div>
+              <div className="info-item">
+                <label>Tipo Atención:</label>
+                <span className="info-value">{fullPrescription.attention_type || 'Consulta Externa'}</span>
+              </div>
+            </div>
+            <div className="info-grid info-grid-2">
+              <div className="info-item">
+                <label>Servicio:</label>
+                <span className="info-value">{fullPrescription.service || 'Farmacia Consulta Externa'}</span>
+              </div>
+              <div className="info-item">
+                <label>Código Receta:</label>
+                <span className="info-value code">{fullPrescription.prescription_code}</span>
+              </div>
             </div>
           </div>
 
-          <div className="detail-section">
-            <h3>Información del Médico</h3>
-            <div className="detail-grid">
-              <div>
+          {/* DATOS DEL PACIENTE */}
+          <div className="detail-section patient-section">
+            <h3 className="section-title">
+              <span className="section-icon">👤</span>
+              Datos del Paciente
+            </h3>
+            <div className="info-grid info-grid-3">
+              <div className="info-item">
                 <label>Nombre:</label>
-                <span>{fullPrescription.doctor_name}</span>
+                <span className="info-value">{fullPrescription.patient_name || '-'}</span>
               </div>
-              {fullPrescription.doctor_license && (
-                <div>
-                  <label>Colegiatura:</label>
-                  <span>{fullPrescription.doctor_license}</span>
-                </div>
-              )}
+              <div className="info-item">
+                <label>DNI:</label>
+                <span className="info-value">{fullPrescription.patient_dni || fullPrescription.patient_id_number || '-'}</span>
+              </div>
+              <div className="info-item">
+                <label>Teléfono:</label>
+                <span className="info-value">{fullPrescription.patient_phone || '-'}</span>
+              </div>
             </div>
           </div>
 
-          <div className="detail-section">
-            <h3>Medicamentos</h3>
+          {/* DATOS DEL MÉDICO */}
+          <div className="detail-section doctor-section">
+            <h3 className="section-title">
+              <span className="section-icon">⚕️</span>
+              Médico Responsable
+            </h3>
+            <div className="info-grid info-grid-3">
+              <div className="info-item">
+                <label>Nombre:</label>
+                <span className="info-value">{fullPrescription.doctor_name || '-'}</span>
+              </div>
+              <div className="info-item">
+                <label>Colegiatura:</label>
+                <span className="info-value">{fullPrescription.doctor_license || '-'}</span>
+              </div>
+              <div className="info-item">
+                <label>Especialidad:</label>
+                <span className="info-value">{fullPrescription.doctor_specialty || fullPrescription.specialty || '-'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* MEDICAMENTOS INDICADOS */}
+          <div className="detail-section medications-section">
+            <h3 className="section-title">
+              <span className="section-icon">💊</span>
+              Medicamentos Indicados
+            </h3>
             {fullPrescription.items && fullPrescription.items.length > 0 ? (
-              <Table
-                columns={[
-                  {
-                    key: 'product_name',
-                    field: 'product_name',
-                    header: 'Nombre',
-                    className: 'col-name'
-                  },
-                  {
-                    key: 'active_ingredient',
-                    field: 'active_ingredient',
-                    header: 'Principio Activo',
-                    render: (value) => value || '-'
-                  },
-                  {
-                    key: 'concentration',
-                    field: 'concentration',
-                    header: 'Concentración',
-                    render: (value) => value || '-'
-                  },
-                  {
-                    key: 'quantity_required',
-                    field: 'quantity_required',
-                    header: 'Cantidad Requerida',
-                    render: (value) => value || 0
-                  },
-                  {
-                    key: 'quantity_dispensed',
-                    field: 'quantity_dispensed',
-                    header: 'Despachado',
-                    render: (value) => value || 0
-                  },
-                  {
-                    key: 'status',
-                    header: 'Estado',
-                    render: (_, row) => {
-                      const itemStatus = getItemStatus(row)
-                      return (
-                        <Badge variant={getStatusVariant(itemStatus)}>
-                          {getStatusLabel(itemStatus)}
-                        </Badge>
-                      )
-                    }
-                  },
-                  {
-                    key: 'stock_status',
-                    header: 'Stock',
-                    render: (_, row) => {
-                      if (row.is_out_of_stock) {
-                        return (
-                          <Badge variant="error" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span>⚠️</span>
-                            <span>Agotado</span>
-                          </Badge>
-                        )
-                      }
-                      return null
-                    }
-                  },
-                  {
-                    key: 'instructions',
-                    field: 'instructions',
-                    header: 'Instrucciones',
-                    render: (value) => value || '-'
-                  }
-                ]}
-                data={fullPrescription.items}
-                emptyMessage="No hay medicamentos registrados en esta receta"
-              />
+              <div className="medications-list">
+                {fullPrescription.items.map((item, index) => (
+                  <div key={item.id || index} className="medication-card">
+                    <div className="medication-header">
+                      <span className="medication-letter">{String.fromCharCode(65 + index)})</span>
+                      <span className="medication-name">
+                        {item.product_name || 'Medicamento'}
+                        {item.concentration && <span className="medication-concentration"> {item.concentration}</span>}
+                      </span>
+                      <Badge variant={getStatusVariant(getItemStatus(item))} size="sm">
+                        {getStatusLabel(getItemStatus(item))}
+                      </Badge>
+                    </div>
+                    <div className="medication-details">
+                      <div className="medication-info-grid">
+                        <div className="med-info-item">
+                          <label>Cantidad:</label>
+                          <span>{item.quantity_required || 0} unidades</span>
+                        </div>
+                        <div className="med-info-item">
+                          <label>Despachado:</label>
+                          <span>{item.quantity_dispensed || 0} unidades</span>
+                        </div>
+                        <div className="med-info-item">
+                          <label>Vía:</label>
+                          <span>{item.administration_route || 'Oral'}</span>
+                        </div>
+                        <div className="med-info-item">
+                          <label>Dosis:</label>
+                          <span>{item.dosage || item.instructions || '-'}</span>
+                        </div>
+                        <div className="med-info-item">
+                          <label>Duración:</label>
+                          <span>{item.duration || '-'}</span>
+                        </div>
+                        {item.item_code && (
+                          <div className="med-info-item">
+                            <label>Código:</label>
+                            <span>{item.item_code}</span>
+                          </div>
+                        )}
+                      </div>
+                      {item.instructions && item.instructions !== item.dosage && (
+                        <div className="medication-instructions">
+                          <label>Indicaciones:</label>
+                          <span>{item.instructions}</span>
+                        </div>
+                      )}
+                      {item.is_out_of_stock && (
+                        <div className="medication-warning">
+                          <Badge variant="error" size="sm">⚠️ Producto Agotado</Badge>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : (
               <p className="no-items">No hay medicamentos registrados en esta receta</p>
             )}
           </div>
 
+          {/* NOTAS ADICIONALES */}
+          {fullPrescription.notes && (
+            <div className="detail-section notes-section">
+              <h3 className="section-title">
+                <span className="section-icon">📝</span>
+                Notas Adicionales
+              </h3>
+              <p className="notes-content">{fullPrescription.notes}</p>
+            </div>
+          )}
+
+          {/* CÓDIGO QR Y ACCIONES */}
           {fullPrescription.qr_code && (
-            <div className="detail-section">
-              <h3>Código QR</h3>
-              <div className="qr-display">
-                <img src={fullPrescription.qr_code} alt="QR Code" />
-                <p className="qr-code">{fullPrescription.prescription_code}</p>
+            <div className="detail-section qr-section">
+              <div className="qr-container">
+                <img src={fullPrescription.qr_code} alt="QR Code" className="qr-image" />
+                <div className="qr-info">
+                  <p className="qr-code-text">{fullPrescription.prescription_code}</p>
+                  <p className="qr-hint">Escanee para verificar autenticidad</p>
+                </div>
               </div>
-              <div style={{ marginTop: 'var(--spacing-4)', display: 'flex', justifyContent: 'center' }}>
+              <div className="prescription-actions no-print">
                 <Button
                   variant="success"
                   onClick={handleOpenWhatsAppModal}
                   disabled={sendWhatsAppMutation.isLoading}
                 >
                   <HiPhone style={{ marginRight: 'var(--spacing-2)' }} />
-                  {fullPrescription?.patient_phone ? 'Enviar a WhatsApp' : 'Enviar a WhatsApp'}
+                  Enviar a WhatsApp
                 </Button>
               </div>
             </div>
           )}
+
+          {/* FIRMA DEL MÉDICO (Solo para impresión) */}
+          <div className="signature-section print-only">
+            <div className="signature-line"></div>
+            <p className="signature-label">Firma y Sello del Médico</p>
+          </div>
         </div>
       ) : error ? (
         <div className="error-message">
@@ -504,4 +536,3 @@ export default function PrescriptionDetail({ prescription, isOpen, onClose }) {
     </Modal>
   )
 }
-

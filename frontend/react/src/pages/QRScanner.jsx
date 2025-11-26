@@ -145,7 +145,12 @@ export default function QRScanner() {
     return () => {
       // Limpiar scanner al desmontar
       if (scanner) {
-        scanner.stop().catch(() => {})
+        try {
+          scanner.stop().catch(() => {})
+          scanner.clear().catch(() => {})
+        } catch (e) {
+          // Ignorar todos los errores de limpieza
+        }
       }
     }
   }, [scanner])
@@ -288,30 +293,31 @@ export default function QRScanner() {
   }
 
   const stopScanning = async () => {
-    try {
-      if (scanner) {
-        try {
-          await scanner.stop()
-        } catch (stopErr) {
-          // Ignorar errores si el scanner no está corriendo
-          if (!stopErr.message?.includes('not running') && !stopErr.message?.includes('paused')) {
-            console.error('Error al detener escáner:', stopErr)
-          }
+    // Actualizar estados primero para evitar problemas de UI
+    setScanning(false)
+    
+    if (scanner) {
+      const currentScanner = scanner
+      setScanner(null) // Limpiar referencia inmediatamente
+      
+      try {
+        // Verificar si el scanner tiene el método getState para saber su estado
+        const isRunning = currentScanner.getState && currentScanner.getState() === 2 // 2 = SCANNING
+        
+        if (isRunning) {
+          await currentScanner.stop()
         }
-        try {
-          await scanner.clear()
-        } catch (clearErr) {
-          // Ignorar errores de limpieza
-          console.log('Error al limpiar escáner (ignorado):', clearErr.message)
-        }
-        setScanner(null)
+      } catch (stopErr) {
+        // Ignorar TODOS los errores de stop - son esperados si el scanner no está corriendo
+        console.log('Stop scanner (ignorado):', stopErr.message)
       }
-      setScanning(false)
-    } catch (err) {
-      console.error('Error al detener escáner:', err)
-      // Asegurar que el estado se actualice incluso si hay error
-      setScanning(false)
-      setScanner(null)
+      
+      try {
+        await currentScanner.clear()
+      } catch (clearErr) {
+        // Ignorar errores de limpieza
+        console.log('Clear scanner (ignorado):', clearErr.message)
+      }
     }
   }
 
@@ -471,17 +477,21 @@ export default function QRScanner() {
                       onChange={async (e) => {
                         const newCameraId = e.target.value
                         setSelectedCameraId(newCameraId)
-                        // Detener escáner actual
+                        
+                        // Detener escáner actual de forma segura
+                        setScanning(false)
                         if (scanner) {
+                          const currentScanner = scanner
+                          setScanner(null)
                           try {
-                            await scanner.stop()
-                            await scanner.clear()
-                            setScanner(null)
+                            await currentScanner.stop().catch(() => {})
+                            await currentScanner.clear().catch(() => {})
                           } catch (err) {
-                            console.error('Error al detener escáner:', err)
+                            // Ignorar todos los errores
+                            console.log('Cambio de cámara - limpieza (ignorado):', err.message)
                           }
                         }
-                        setScanning(false)
+                        
                         // Reiniciar con nueva cámara después de un breve delay
                         setTimeout(() => {
                           startScanning()

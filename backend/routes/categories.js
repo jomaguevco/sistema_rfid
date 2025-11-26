@@ -87,9 +87,9 @@ router.post('/', async (req, res) => {
 
 /**
  * PUT /api/categories/:id
- * Actualizar una categoría
+ * Actualizar una categoría (requiere autenticación)
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const categoryId = parseInt(req.params.id);
     const { name, description } = req.body;
@@ -149,9 +149,9 @@ router.put('/:id', async (req, res) => {
 
 /**
  * DELETE /api/categories/:id
- * Eliminar una categoría
+ * Eliminar una categoría (requiere autenticación)
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const categoryId = parseInt(req.params.id);
     

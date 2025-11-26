@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../database_medical');
 const { authenticateToken } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
+const businessRules = require('../config/businessRules');
 
 /**
  * GET /api/batches
@@ -133,8 +134,38 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
-    // Validar que el RFID no tenga stock activo antes de crear/actualizar
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VALIDACIONES DE NEGOCIO - CREAR LOTE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // VALIDACIÓN CRÍTICA: No permitir crear lotes con fecha de vencimiento pasada
+    if (!businessRules.ALLOW_PAST_EXPIRY_DATE && businessRules.isBatchExpired(expiry_date)) {
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.BATCH_EXPIRY_PAST,
+        expiry_date: expiry_date,
+        days_expired: Math.abs(businessRules.getDaysUntilExpiry(expiry_date))
+      });
+    }
+
+    // Validar que el producto exista
+    const product = await db.getProductById(parseInt(product_id));
+    if (!product) {
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.PRODUCT_NOT_FOUND
+      });
+    }
+
+    // Validar formato de RFID si se proporciona
     if (rfid_uid) {
+      if (!businessRules.isValidRfidFormat(rfid_uid)) {
+        return res.status(400).json({
+          success: false,
+          error: businessRules.ERROR_MESSAGES.RFID_INVALID_FORMAT
+        });
+      }
+
       const normalizedRfid = rfid_uid.toUpperCase().trim();
       const hasActiveStock = await db.checkRfidHasActiveStock(normalizedRfid);
       
@@ -160,10 +191,20 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Validar quantity antes de crear batch
     const quantityValue = parseInt(quantity, 10);
-    if (!quantity || isNaN(quantityValue) || quantityValue <= 0) {
+    if (!quantity || isNaN(quantityValue) || quantityValue < businessRules.MIN_QUANTITY) {
       return res.status(400).json({
         success: false,
-        error: 'La cantidad debe ser un número entero positivo mayor a 0'
+        error: businessRules.ERROR_MESSAGES.QUANTITY_INVALID
+      });
+    }
+
+    if (quantityValue > businessRules.MAX_QUANTITY_PER_OPERATION) {
+      return res.status(400).json({
+        success: false,
+        error: businessRules.formatErrorMessage(
+          businessRules.ERROR_MESSAGES.QUANTITY_EXCEEDS_MAX,
+          { max: businessRules.MAX_QUANTITY_PER_OPERATION }
+        )
       });
     }
 
@@ -211,9 +252,9 @@ router.post('/', authenticateToken, async (req, res) => {
 
 /**
  * PUT /api/batches/:id/quantity
- * Actualizar cantidad de un lote
+ * Actualizar cantidad de un lote (solo admin y farmaceutico)
  */
-router.put('/:id/quantity', async (req, res) => {
+router.put('/:id/quantity', authenticateToken, async (req, res) => {
   try {
     const batchId = parseInt(req.params.id);
     const { quantity } = req.body;
@@ -241,9 +282,9 @@ router.put('/:id/quantity', async (req, res) => {
 
 /**
  * PUT /api/batches/:id/rfid
- * Asignar RFID a un lote
+ * Asignar RFID a un lote (solo admin y farmaceutico)
  */
-router.put('/:id/rfid', async (req, res) => {
+router.put('/:id/rfid', authenticateToken, async (req, res) => {
   try {
     const batchId = parseInt(req.params.id);
     const { rfid_uid } = req.body;

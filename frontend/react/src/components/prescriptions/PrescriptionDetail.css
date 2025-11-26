@@ -1,225 +1,335 @@
+/* ============================================================================
+   ESTILOS DE DETALLE DE RECETA - FORMATO INSTITUCIONAL
+   ============================================================================ */
+
 .prescription-detail {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-6);
+  gap: var(--spacing-5);
+  max-width: 900px;
+  margin: 0 auto;
 }
 
+/* ENCABEZADO */
+.prescription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-4) var(--spacing-5);
+  background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%);
+  border-radius: var(--border-radius-lg);
+  color: white;
+}
+
+.prescription-title h2 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #ffffff !important;
+}
+
+.prescription-subtitle {
+  font-size: 0.875rem;
+  opacity: 0.85;
+  margin-top: 4px;
+  display: block;
+}
+
+.prescription-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+/* SECCIONES */
 .detail-section {
-  padding-bottom: var(--spacing-4);
-  border-bottom: 1px solid var(--color-gray-200);
+  padding: var(--spacing-4);
+  border-radius: var(--border-radius-lg);
+  background-color: var(--color-white);
+  border: 1px solid var(--color-gray-200);
 }
 
-.detail-section:last-child {
-  border-bottom: none;
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a365d;
+  margin: 0 0 var(--spacing-4) 0;
+  padding-bottom: var(--spacing-2);
+  border-bottom: 2px solid #2b6cb0;
 }
 
-.detail-section h3 {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-gray-900);
+.section-icon {
+  font-size: 1.25rem;
+}
+
+/* DOCUMENTO INFO */
+.document-info {
+  background: linear-gradient(135deg, #f7fafc 0%, #ebf8ff 100%);
+  border-color: #90cdf4;
+}
+
+/* GRIDS DE INFORMACIÓN */
+.info-grid {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.info-grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.info-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.info-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-item label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.info-value {
+  font-size: 0.95rem;
+  color: #1a202c;
+  font-weight: 500;
+}
+
+.info-value.highlight {
+  color: #2b6cb0;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.info-value.code {
+  font-family: 'Courier New', monospace;
+  background-color: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+/* SECCIÓN PACIENTE */
+.patient-section {
+  background-color: #fafafa;
+}
+
+/* SECCIÓN MÉDICO */
+.doctor-section {
+  background-color: #fafafa;
+}
+
+/* LISTA DE MEDICAMENTOS */
+.medications-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+.medication-card {
+  background-color: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.medication-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
+  background: linear-gradient(90deg, #2b6cb0 0%, #4299e1 100%);
+  color: white;
+}
+
+.medication-letter {
+  font-size: 1.1rem;
+  font-weight: 700;
+  min-width: 28px;
+}
+
+.medication-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.medication-concentration {
+  opacity: 0.9;
+  font-weight: 400;
+}
+
+.medication-details {
+  padding: var(--spacing-3) var(--spacing-4);
+}
+
+.medication-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-3);
+}
+
+.med-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.med-info-item label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #718096;
+  text-transform: uppercase;
+}
+
+.med-info-item span {
+  font-size: 0.875rem;
+  color: #1a202c;
+}
+
+.medication-instructions {
+  margin-top: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
+  background-color: #fff5f5;
+  border-left: 3px solid #fc8181;
+  border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+}
+
+.medication-instructions label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #c53030;
+  text-transform: uppercase;
+}
+
+.medication-instructions span {
+  display: block;
+  font-size: 0.875rem;
+  color: #742a2a;
+  font-style: italic;
+}
+
+.medication-warning {
+  margin-top: var(--spacing-2);
+}
+
+/* NOTAS */
+.notes-section {
+  background-color: #fffff0;
+  border-color: #ecc94b;
+}
+
+.notes-content {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #744210;
+  line-height: 1.6;
+  font-style: italic;
+}
+
+/* QR SECTION */
+.qr-section {
+  text-align: center;
+  padding: var(--spacing-5);
+}
+
+.qr-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-5);
   margin-bottom: var(--spacing-4);
 }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--spacing-4);
-}
-
-.detail-grid > div {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-1);
-}
-
-.detail-grid label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-gray-500);
-}
-
-.detail-grid span {
-  font-size: var(--font-size-base);
-  color: var(--color-gray-900);
-}
-
-.items-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3);
-}
-
-.item-card {
-  padding: var(--spacing-4);
-  background-color: var(--color-gray-50);
-  border-radius: var(--border-radius-lg);
-  border: 1px solid var(--color-gray-200);
-}
-
-.item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--spacing-3);
-}
-
-.item-details {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2);
-}
-
-.item-details > div {
-  display: flex;
-  gap: var(--spacing-4);
-  font-size: var(--font-size-sm);
-  color: var(--color-gray-600);
-}
-
-.item-instructions {
-  margin: 0;
-  padding: var(--spacing-2);
-  background-color: var(--color-white);
+.qr-image {
+  width: 150px;
+  height: 150px;
+  border: 3px solid #2b6cb0;
   border-radius: var(--border-radius-md);
-  font-size: var(--font-size-sm);
-  font-style: italic;
-  color: var(--color-gray-700);
+  padding: 8px;
+  background: white;
 }
 
-.qr-display {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-3);
-  padding: var(--spacing-4);
-  background-color: var(--color-gray-50);
-  border-radius: var(--border-radius-lg);
+.qr-info {
+  text-align: left;
 }
 
-.qr-display img {
-  max-width: 200px;
-  height: auto;
+.qr-code-text {
+  font-family: 'Courier New', monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #2b6cb0;
+  margin: 0 0 8px 0;
 }
 
-.qr-code {
-  font-family: var(--font-family-primary);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-primary);
+.qr-hint {
+  font-size: 0.8rem;
+  color: #718096;
   margin: 0;
 }
 
-.prescription-code-section {
-  background: linear-gradient(135deg, var(--color-primary-light) 0%, #F0F7FF 100%);
-  padding: var(--spacing-5);
-  border-radius: var(--border-radius-lg);
-  border: 2px solid var(--color-primary-light);
+.prescription-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-6);
-  align-items: center;
-}
-
-.prescription-code-display {
-  display: flex;
-  align-items: center;
+  justify-content: center;
   gap: var(--spacing-3);
-  flex: 1;
-  min-width: 250px;
+  margin-top: var(--spacing-4);
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--color-gray-200);
 }
 
-.prescription-code-display label {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-gray-700);
-  font-size: var(--font-size-base);
-}
-
-.prescription-code-badge {
-  font-size: var(--font-size-xl) !important;
-  font-weight: var(--font-weight-bold) !important;
-  padding: var(--spacing-3) var(--spacing-6) !important;
-  letter-spacing: 1px;
-  font-family: var(--font-family-primary) !important;
-  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.2);
-  border: 2px solid var(--color-primary);
-}
-
-.prescription-status-display,
-.prescription-date-display {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-3);
-}
-
-.prescription-status-display label,
-.prescription-date-display label {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-gray-600);
-  font-size: var(--font-size-sm);
-}
-
-.prescription-date-display span {
-  font-size: var(--font-size-base);
-  color: var(--color-gray-900);
-  font-weight: var(--font-weight-medium);
-}
-
-.detail-section .table-container {
-  margin-top: var(--spacing-2);
-  overflow-x: auto;
-  border: 1px solid var(--color-gray-200);
-  border-radius: var(--border-radius-lg);
-}
-
-.detail-section .table {
-  width: 100%;
-  font-size: var(--font-size-sm);
-  border-collapse: collapse;
-  min-width: 800px;
-}
-
-.detail-section .table th {
-  background-color: var(--color-gray-50);
-  font-weight: var(--font-weight-semibold);
-  text-align: left;
-  padding: var(--spacing-3);
-  border-bottom: 2px solid var(--color-gray-200);
-  white-space: nowrap;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.detail-section .table td {
-  padding: var(--spacing-3);
-  border-bottom: 1px solid var(--color-gray-100);
-  vertical-align: middle;
-}
-
-.detail-section .table tbody tr:hover {
-  background-color: var(--color-gray-50);
-}
-
-.detail-section .table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.detail-section .table .col-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-gray-900);
-}
-
-.no-items {
-  padding: var(--spacing-4);
+/* FIRMA (Solo para impresión) */
+.signature-section {
+  display: none;
   text-align: center;
-  color: var(--color-gray-500);
-  font-style: italic;
+  margin-top: var(--spacing-6);
+  padding-top: var(--spacing-4);
 }
 
+.signature-line {
+  width: 250px;
+  height: 1px;
+  background-color: #1a202c;
+  margin: 0 auto var(--spacing-2);
+}
+
+.signature-label {
+  font-size: 0.875rem;
+  color: #4a5568;
+  margin: 0;
+}
+
+/* NO ITEMS */
+.no-items {
+  padding: var(--spacing-6);
+  text-align: center;
+  color: #718096;
+  font-style: italic;
+  background-color: #f7fafc;
+  border-radius: var(--border-radius-md);
+}
+
+/* ERROR */
 .error-message {
-  padding: var(--spacing-4);
+  padding: var(--spacing-6);
   text-align: center;
   color: var(--color-error);
+  background-color: #fff5f5;
+  border-radius: var(--border-radius-md);
 }
 
 .error-detail {
@@ -228,3 +338,180 @@
   color: var(--color-gray-600);
 }
 
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .prescription-header {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--spacing-3);
+  }
+
+  .info-grid-2,
+  .info-grid-3,
+  .info-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .medication-info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .qr-container {
+    flex-direction: column;
+  }
+
+  .qr-info {
+    text-align: center;
+  }
+
+  .prescription-actions {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .info-grid-2,
+  .info-grid-3,
+  .info-grid-4,
+  .medication-info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================================
+   ESTILOS DE IMPRESIÓN
+   ============================================================================ */
+
+@media print {
+  /* Ocultar elementos no necesarios para impresión */
+  .no-print,
+  .prescription-actions {
+    display: none !important;
+  }
+
+  /* Mostrar sección de firma */
+  .print-only,
+  .signature-section {
+    display: block !important;
+  }
+
+  /* Resetear estilos del body */
+  body {
+    margin: 0;
+    padding: 0;
+    background: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Estilos del contenedor principal */
+  .prescription-detail {
+    max-width: 100% !important;
+    padding: 0 !important;
+    gap: 12pt !important;
+  }
+
+  /* Encabezado para impresión */
+  .prescription-header {
+    background: #1a365d !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    padding: 15pt 20pt !important;
+    border-radius: 0 !important;
+  }
+
+  .prescription-title h2 {
+    font-size: 18pt !important;
+  }
+
+  .prescription-subtitle {
+    font-size: 10pt !important;
+  }
+
+  /* Secciones */
+  .detail-section {
+    border: 1pt solid #ccc !important;
+    padding: 12pt !important;
+    page-break-inside: avoid;
+    border-radius: 0 !important;
+  }
+
+  .section-title {
+    font-size: 12pt !important;
+    border-bottom: 2pt solid #2b6cb0 !important;
+  }
+
+  /* Información */
+  .info-item label {
+    font-size: 8pt !important;
+  }
+
+  .info-value {
+    font-size: 10pt !important;
+  }
+
+  /* Medicamentos */
+  .medication-card {
+    page-break-inside: avoid;
+  }
+
+  .medication-header {
+    background: #2b6cb0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    padding: 8pt 12pt !important;
+  }
+
+  .medication-name {
+    font-size: 11pt !important;
+  }
+
+  .med-info-item label {
+    font-size: 7pt !important;
+  }
+
+  .med-info-item span {
+    font-size: 9pt !important;
+  }
+
+  /* QR */
+  .qr-section {
+    page-break-inside: avoid;
+    padding: 15pt !important;
+  }
+
+  .qr-image {
+    width: 100px !important;
+    height: 100px !important;
+  }
+
+  .qr-code-text {
+    font-size: 12pt !important;
+  }
+
+  /* Firma */
+  .signature-section {
+    margin-top: 30pt !important;
+    padding-top: 20pt !important;
+  }
+
+  .signature-line {
+    width: 180pt !important;
+  }
+
+  .signature-label {
+    font-size: 9pt !important;
+  }
+
+  /* Evitar saltos de página problemáticos */
+  .detail-section,
+  .medication-card {
+    break-inside: avoid;
+  }
+
+  /* Configuración de página */
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+}

@@ -19,11 +19,16 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
     patient_id: '',
     patient_name: '',
     patient_id_number: '',
+    patient_phone: '',
     doctor_id: '',
     doctor_name: '',
     doctor_license: '',
     prescription_date: new Date().toISOString().split('T')[0],
-    notes: ''
+    notes: '',
+    // Nuevos campos formato institucional
+    specialty: '',
+    service: 'Farmacia Consulta Externa',
+    attention_type: 'Consulta Externa'
   })
   
   const [items, setItems] = useState([])
@@ -32,7 +37,11 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
     product_id: '',
     product_search: '',
     quantity_required: 1,
-    instructions: ''
+    instructions: '',
+    // Nuevos campos formato institucional
+    administration_route: 'Oral',
+    dosage: '',
+    duration: ''
   })
   const [productSearchResults, setProductSearchResults] = useState([])
   const [showProductDropdown, setShowProductDropdown] = useState(false)
@@ -267,18 +276,25 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
         patient_id: '',
         patient_name: '',
         patient_id_number: '',
+        patient_phone: '',
         doctor_id: '',
         doctor_name: '',
         doctor_license: '',
         prescription_date: new Date().toISOString().split('T')[0],
-        notes: ''
+        notes: '',
+        specialty: '',
+        service: 'Farmacia Consulta Externa',
+        attention_type: 'Consulta Externa'
       })
       setItems([])
       setItemForm({
         product_id: '',
         product_search: '',
         quantity_required: 1,
-        instructions: ''
+        instructions: '',
+        administration_route: 'Oral',
+        dosage: '',
+        duration: ''
       })
       setSelectedProductInfo(null)
       setSelectedPatient(null)
@@ -289,6 +305,13 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       setErrors({})
     }
   }, [isOpen])
+
+  // Constantes de validación (sincronizadas con backend)
+  const VALIDATION_RULES = {
+    MAX_ITEMS_PER_PRESCRIPTION: 20,
+    MIN_QUANTITY: 1,
+    MAX_QUANTITY_PER_ITEM: 10000
+  }
 
   const validate = () => {
     const newErrors = {}
@@ -303,10 +326,35 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
     
     if (!formData.prescription_date) {
       newErrors.prescription_date = 'La fecha de receta es requerida'
+    } else {
+      // VALIDACIÓN: La fecha de receta no puede ser futura
+      const prescriptionDate = new Date(formData.prescription_date)
+      const today = new Date()
+      today.setHours(23, 59, 59, 999) // Fin del día
+      
+      if (prescriptionDate > today) {
+        newErrors.prescription_date = 'La fecha de la receta no puede ser futura'
+      }
     }
     
     if (items.length === 0) {
       newErrors.items = 'Debe agregar al menos un medicamento'
+    } else if (items.length > VALIDATION_RULES.MAX_ITEMS_PER_PRESCRIPTION) {
+      newErrors.items = `La receta no puede tener más de ${VALIDATION_RULES.MAX_ITEMS_PER_PRESCRIPTION} medicamentos`
+    }
+
+    // Validar cantidades de cada item
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const qty = parseInt(item.quantity_required, 10)
+      if (isNaN(qty) || qty < VALIDATION_RULES.MIN_QUANTITY) {
+        newErrors.items = `El medicamento "${item.product_name}" tiene una cantidad inválida`
+        break
+      }
+      if (qty > VALIDATION_RULES.MAX_QUANTITY_PER_ITEM) {
+        newErrors.items = `El medicamento "${item.product_name}" excede la cantidad máxima permitida (${VALIDATION_RULES.MAX_QUANTITY_PER_ITEM})`
+        break
+      }
     }
     
     setErrors(newErrors)
@@ -329,9 +377,21 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       return
     }
     
-    if (!quantityValue || quantityValue < 1 || isNaN(quantityValue)) {
+    if (!quantityValue || quantityValue < VALIDATION_RULES.MIN_QUANTITY || isNaN(quantityValue)) {
       console.error('❌ [DEBUG] Cantidad inválida:', quantityValue)
       alert('Por favor, especifica una cantidad válida (mayor a 0)')
+      return
+    }
+
+    // VALIDACIÓN: Cantidad máxima por item
+    if (quantityValue > VALIDATION_RULES.MAX_QUANTITY_PER_ITEM) {
+      alert(`La cantidad máxima permitida es ${VALIDATION_RULES.MAX_QUANTITY_PER_ITEM} unidades`)
+      return
+    }
+
+    // VALIDACIÓN: Límite de items por receta
+    if (items.length >= VALIDATION_RULES.MAX_ITEMS_PER_PRESCRIPTION) {
+      alert(`No se pueden agregar más de ${VALIDATION_RULES.MAX_ITEMS_PER_PRESCRIPTION} medicamentos por receta`)
       return
     }
 
@@ -366,7 +426,11 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       product_id: productId,
       product_name: product.name,
       quantity_required: quantityValue,
-      instructions: itemForm.instructions.trim()
+      instructions: itemForm.instructions.trim(),
+      // Nuevos campos formato institucional
+      administration_route: itemForm.administration_route || 'Oral',
+      dosage: itemForm.dosage.trim() || null,
+      duration: itemForm.duration.trim() || null
     }
 
     console.log('✅ [DEBUG] Agregando item:', newItem)
@@ -375,7 +439,10 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       product_id: '',
       product_search: '',
       quantity_required: 1,
-      instructions: ''
+      instructions: '',
+      administration_route: 'Oral',
+      dosage: '',
+      duration: ''
     })
     setSelectedProductInfo(null)
     setShowProductDropdown(false)
@@ -424,15 +491,24 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
       patient_name: formData.patient_name.trim(),
       patient_id: formData.patient_id ? parseInt(formData.patient_id) : null,
       patient_id_number: formData.patient_id_number?.trim() || null,
+      patient_phone: formData.patient_phone?.trim() || null,
       doctor_name: formData.doctor_name.trim(),
       doctor_id: formData.doctor_id ? parseInt(formData.doctor_id) : null,
       doctor_license: formData.doctor_license?.trim() || null,
       prescription_date: formData.prescription_date,
       notes: formData.notes?.trim() || null,
+      // Nuevos campos formato institucional
+      specialty: formData.specialty?.trim() || null,
+      service: formData.service?.trim() || 'Farmacia Consulta Externa',
+      attention_type: formData.attention_type?.trim() || 'Consulta Externa',
       items: items.map(item => ({
         product_id: parseInt(item.product_id) || item.product_id,
         quantity_required: parseInt(item.quantity_required) || item.quantity_required,
-        instructions: item.instructions || null
+        instructions: item.instructions || null,
+        // Nuevos campos de item
+        administration_route: item.administration_route || 'Oral',
+        dosage: item.dosage || null,
+        duration: item.duration || null
       }))
     }
 
@@ -534,11 +610,20 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
             )}
           </div>
           {!selectedPatient && (
-            <Input
-              label="DNI/ID (Opcional)"
-              value={formData.patient_id_number}
-              onChange={(e) => setFormData({ ...formData, patient_id_number: e.target.value })}
-            />
+            <div className="form-row form-row-2">
+              <Input
+                label="DNI/ID (Opcional)"
+                value={formData.patient_id_number}
+                onChange={(e) => setFormData({ ...formData, patient_id_number: e.target.value })}
+              />
+              <Input
+                label="Teléfono (Opcional)"
+                type="tel"
+                value={formData.patient_phone}
+                onChange={(e) => setFormData({ ...formData, patient_phone: e.target.value })}
+                placeholder="Ej: 987654321"
+              />
+            </div>
           )}
         </div>
 
@@ -679,11 +764,41 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
               required
             />
             <div className="form-group">
+              <label>Tipo de Atención</label>
+              <select
+                value={formData.attention_type}
+                onChange={(e) => setFormData({ ...formData, attention_type: e.target.value })}
+                className="input"
+              >
+                <option value="Consulta Externa">Consulta Externa</option>
+                <option value="Emergencia">Emergencia</option>
+                <option value="Hospitalización">Hospitalización</option>
+                <option value="Cirugía">Cirugía</option>
+                <option value="UCI">UCI</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-row form-row-2">
+            <div className="form-group">
+              <label>Servicio</label>
+              <select
+                value={formData.service}
+                onChange={(e) => setFormData({ ...formData, service: e.target.value })}
+                className="input"
+              >
+                <option value="Farmacia Consulta Externa">Farmacia Consulta Externa</option>
+                <option value="Farmacia Emergencia">Farmacia Emergencia</option>
+                <option value="Farmacia Hospitalización">Farmacia Hospitalización</option>
+                <option value="Farmacia Oncología">Farmacia Oncología</option>
+                <option value="Farmacia Pediatría">Farmacia Pediatría</option>
+              </select>
+            </div>
+            <div className="form-group">
               <label>Notas (Opcional)</label>
               <textarea
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
+                rows={2}
                 className="input"
                 placeholder="Notas adicionales sobre la receta..."
               />
@@ -804,11 +919,46 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                 Agregar
               </Button>
             </div>
+            <div className="form-row form-row-3">
+              <div className="form-group">
+                <label>Vía de Administración</label>
+                <select
+                  value={itemForm.administration_route}
+                  onChange={(e) => setItemForm({ ...itemForm, administration_route: e.target.value })}
+                  className="input"
+                >
+                  <option value="Oral">Oral</option>
+                  <option value="Sublingual">Sublingual</option>
+                  <option value="Intravenosa (IV)">Intravenosa (IV)</option>
+                  <option value="Intramuscular (IM)">Intramuscular (IM)</option>
+                  <option value="Subcutánea (SC)">Subcutánea (SC)</option>
+                  <option value="Tópica">Tópica</option>
+                  <option value="Oftálmica">Oftálmica</option>
+                  <option value="Ótica">Ótica</option>
+                  <option value="Nasal">Nasal</option>
+                  <option value="Inhalatoria">Inhalatoria</option>
+                  <option value="Rectal">Rectal</option>
+                  <option value="Vaginal">Vaginal</option>
+                </select>
+              </div>
+              <Input
+                label="Dosis"
+                value={itemForm.dosage}
+                onChange={(e) => setItemForm({ ...itemForm, dosage: e.target.value })}
+                placeholder="Ej: 1 tableta cada 8 horas"
+              />
+              <Input
+                label="Duración"
+                value={itemForm.duration}
+                onChange={(e) => setItemForm({ ...itemForm, duration: e.target.value })}
+                placeholder="Ej: 30 días"
+              />
+            </div>
             <Input
-              label="Instrucciones (Opcional)"
+              label="Instrucciones adicionales (Opcional)"
               value={itemForm.instructions}
               onChange={(e) => setItemForm({ ...itemForm, instructions: e.target.value })}
-              placeholder="Ej: Tomar 1 tableta cada 8 horas"
+              placeholder="Indicaciones especiales..."
             />
           </div>
 
@@ -820,10 +970,13 @@ export default function PrescriptionForm({ isOpen, onClose, onSuccess }) {
                     <strong>{item.product_name}</strong>
                     <div className="item-details">
                       <Badge variant="info">Cantidad: {item.quantity_required}</Badge>
-                      {item.instructions && (
-                        <span className="item-instructions">{item.instructions}</span>
-                      )}
+                      <Badge variant="secondary">{item.administration_route || 'Oral'}</Badge>
+                      {item.dosage && <Badge variant="outline">{item.dosage}</Badge>}
+                      {item.duration && <Badge variant="outline">{item.duration}</Badge>}
                     </div>
+                    {item.instructions && (
+                      <span className="item-instructions">{item.instructions}</span>
+                    )}
                   </div>
                   <Button
                     size="sm"

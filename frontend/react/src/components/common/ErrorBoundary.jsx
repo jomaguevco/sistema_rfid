@@ -1,6 +1,16 @@
 import React from 'react'
 import './ErrorBoundary.css'
 
+// Lista de errores que deben ser ignorados (errores esperados del escáner QR)
+const IGNORED_ERRORS = [
+  'Cannot stop',
+  'not running',
+  'not paused',
+  'scanner is not running',
+  'IndexSizeError',
+  'getImageData'
+]
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props)
@@ -8,10 +18,34 @@ class ErrorBoundary extends React.Component {
   }
 
   static getDerivedStateFromError(error) {
+    // Verificar si es un error que debe ser ignorado
+    const errorMessage = error?.message || error?.toString() || ''
+    const shouldIgnore = IGNORED_ERRORS.some(ignored => 
+      errorMessage.toLowerCase().includes(ignored.toLowerCase())
+    )
+    
+    if (shouldIgnore) {
+      console.log('ErrorBoundary: Ignorando error esperado del escáner:', errorMessage)
+      return null // No actualizar el estado, ignorar el error
+    }
+    
     return { hasError: true, error }
   }
 
   componentDidCatch(error, errorInfo) {
+    // Verificar si es un error que debe ser ignorado
+    const errorMessage = error?.message || error?.toString() || ''
+    const shouldIgnore = IGNORED_ERRORS.some(ignored => 
+      errorMessage.toLowerCase().includes(ignored.toLowerCase())
+    )
+    
+    if (shouldIgnore) {
+      console.log('ErrorBoundary: Error del escáner ignorado:', errorMessage)
+      // Resetear el estado de error si se capturó por accidente
+      this.setState({ hasError: false, error: null })
+      return
+    }
+    
     console.error('Error capturado por ErrorBoundary:', error, errorInfo)
   }
 

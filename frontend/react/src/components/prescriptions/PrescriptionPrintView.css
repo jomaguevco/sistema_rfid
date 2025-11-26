@@ -1,0 +1,594 @@
+/* ============================================================================
+   ESTILOS PARA VISTA DE IMPRESIÓN DE RECETAS
+   ============================================================================ */
+
+/* OVERLAY - Vista de pantalla completa */
+.print-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #f0f0f0;
+  z-index: 9999;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* BARRA DE HERRAMIENTAS */
+.print-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--gradient-primary, linear-gradient(135deg, #0066CC 0%, #004C99 100%));
+  color: white;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.print-toolbar-info h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.print-toolbar-info span {
+  font-size: 0.875rem;
+  opacity: 0.95;
+  color: #ffffff;
+}
+
+.print-toolbar-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.print-toolbar-actions button {
+  font-weight: 500;
+}
+
+/* CONTENIDO DE LA RECETA */
+.print-content {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+.prescription-print {
+  width: 210mm; /* A4 width */
+  min-height: 297mm; /* A4 height */
+  max-width: 100%;
+  background: white;
+  padding: 20mm;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 11pt;
+  color: #1a202c;
+  position: relative;
+}
+
+/* ENCABEZADO */
+.print-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 15px;
+  border-bottom: 3px solid #2b6cb0;
+  margin-bottom: 15px;
+}
+
+.print-logo {
+  flex: 0 0 60px;
+}
+
+.logo-placeholder {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #2b6cb0 0%, #4299e1 100%);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+}
+
+.print-title {
+  flex: 1;
+  text-align: center;
+}
+
+.print-title h1 {
+  margin: 0;
+  font-size: 24pt;
+  font-weight: 700;
+  color: #1a365d;
+  letter-spacing: 2px;
+}
+
+.print-subtitle {
+  margin: 5px 0 0 0;
+  font-size: 11pt;
+  color: #4a5568;
+}
+
+.print-order-number {
+  flex: 0 0 auto;
+  text-align: right;
+  background-color: #ebf8ff;
+  padding: 10px 15px;
+  border-radius: 8px;
+  border: 2px solid #2b6cb0;
+}
+
+.print-order-number .label {
+  display: block;
+  font-size: 8pt;
+  color: #4a5568;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.print-order-number .value {
+  display: block;
+  font-size: 14pt;
+  font-weight: 700;
+  color: #2b6cb0;
+}
+
+/* LÍNEA SEPARADORA */
+.print-divider {
+  height: 2px;
+  background: linear-gradient(90deg, #2b6cb0 0%, #4299e1 50%, #2b6cb0 100%);
+  margin: 10px 0;
+}
+
+/* SECCIONES */
+.print-section {
+  margin-bottom: 15px;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.section-title {
+  margin: 0 0 10px 0;
+  font-size: 12pt;
+  font-weight: 700;
+  color: #1a365d;
+  padding-bottom: 5px;
+  border-bottom: 2px solid #2b6cb0;
+}
+
+/* INFO ROWS */
+.info-row {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.info-col {
+  flex: 1;
+  min-width: 120px;
+}
+
+.info-col-2 {
+  flex: 2;
+}
+
+.info-col .label {
+  font-size: 8pt;
+  color: #718096;
+  text-transform: uppercase;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.info-col .value {
+  font-size: 11pt;
+  color: #1a202c;
+  font-weight: 500;
+}
+
+/* SECCIÓN GENERAL */
+.print-general-info {
+  background-color: #f7fafc;
+  border: 1px solid #e2e8f0;
+}
+
+/* SECCIÓN PACIENTE */
+.print-patient-section {
+  background-color: #ebf8ff;
+  border: 1px solid #90cdf4;
+}
+
+/* SECCIÓN MEDICAMENTOS */
+.print-medications-section {
+  background-color: white;
+  border: 1px solid #e2e8f0;
+}
+
+.medications-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.medications-table th,
+.medications-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+}
+
+.medications-table th {
+  background-color: #2b6cb0;
+  color: white;
+  font-size: 9pt;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.medications-table td {
+  font-size: 10pt;
+  vertical-align: top;
+}
+
+.medications-table tr:nth-child(even) {
+  background-color: #f7fafc;
+}
+
+.medications-table .col-item {
+  width: 30px;
+  text-align: center;
+  font-weight: 700;
+  color: #2b6cb0;
+}
+
+.medications-table .col-name {
+  min-width: 200px;
+}
+
+.medications-table .col-qty {
+  width: 50px;
+  text-align: center;
+}
+
+.medications-table .col-route,
+.medications-table .col-dosage,
+.medications-table .col-duration {
+  width: 100px;
+}
+
+.medications-table .concentration {
+  color: #718096;
+  font-weight: 400;
+}
+
+.medications-table .item-instructions {
+  margin-top: 4px;
+  font-size: 9pt;
+  color: #c53030;
+  font-style: italic;
+}
+
+.no-items {
+  text-align: center;
+  color: #718096;
+  font-style: italic;
+  padding: 20px;
+}
+
+/* SECCIÓN NOTAS */
+.print-notes-section {
+  background-color: #fffff0;
+  border: 1px solid #ecc94b;
+}
+
+.notes-text {
+  margin: 0;
+  font-style: italic;
+  color: #744210;
+  line-height: 1.5;
+}
+
+/* SECCIÓN MÉDICO */
+.print-doctor-section {
+  background-color: #fafafa;
+  border: 1px solid #e2e8f0;
+}
+
+.signature-area {
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+.signature-box {
+  text-align: center;
+  width: 250px;
+}
+
+.signature-line {
+  height: 1px;
+  background-color: #1a202c;
+  margin-bottom: 8px;
+}
+
+.signature-label {
+  margin: 0;
+  font-size: 10pt;
+  color: #4a5568;
+}
+
+/* PIE DE PÁGINA */
+.print-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 2px solid #2b6cb0;
+}
+
+.footer-left {
+  flex: 0 0 80px;
+}
+
+.qr-code {
+  width: 70px;
+  height: 70px;
+  border: 2px solid #2b6cb0;
+  border-radius: 5px;
+}
+
+.footer-center {
+  flex: 1;
+  text-align: center;
+}
+
+.prescription-code {
+  margin: 0;
+  font-size: 12pt;
+  color: #2b6cb0;
+}
+
+.verification-text {
+  margin: 5px 0 0 0;
+  font-size: 8pt;
+  color: #718096;
+}
+
+.footer-right {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.print-date {
+  margin: 0;
+  font-size: 8pt;
+  color: #a0aec0;
+}
+
+/* ERROR */
+.print-error {
+  text-align: center;
+  padding: 40px;
+  color: #c53030;
+}
+
+/* ============================================================================
+   ESTILOS DE IMPRESIÓN
+   ============================================================================ */
+
+@media print {
+  /* Configuración básica de página */
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  /* Reset base para impresión */
+  html, body, #root {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* OCULTAR: Sidebar, navegación y elementos de la app */
+  .sidebar,
+  nav,
+  navigation,
+  .main-content > *:not(.print-overlay),
+  .page-content,
+  .prescriptions-page,
+  [class*="sidebar"],
+  main:not(:has(.print-overlay)) {
+    display: none !important;
+  }
+
+  /* OCULTAR: Barra de herramientas de impresión */
+  .print-toolbar,
+  .no-print {
+    display: none !important;
+  }
+
+  /* MOSTRAR: El overlay de impresión */
+  .print-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    background: white !important;
+    z-index: 999999 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Contenedor del contenido */
+  .print-content {
+    display: block !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  /* La receta en sí */
+  .prescription-print {
+    display: block !important;
+    position: relative !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 5mm !important;
+    background: white !important;
+    box-shadow: none !important;
+  }
+
+  /* Asegurar que todos los elementos dentro sean visibles */
+  .prescription-print *,
+  .print-header,
+  .print-section,
+  .print-footer,
+  .medications-table,
+  .info-row,
+  .info-col {
+    display: block !important;
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Restaurar display específico para elementos que lo necesitan */
+  .print-header,
+  .info-row,
+  .print-footer {
+    display: flex !important;
+  }
+
+  .medications-table {
+    display: table !important;
+  }
+
+  .medications-table thead {
+    display: table-header-group !important;
+  }
+
+  .medications-table tbody {
+    display: table-row-group !important;
+  }
+
+  .medications-table tr {
+    display: table-row !important;
+  }
+
+  .medications-table th,
+  .medications-table td {
+    display: table-cell !important;
+  }
+
+  /* Colores forzados */
+  .logo-placeholder {
+    background: #2b6cb0 !important;
+  }
+
+  .medications-table th {
+    background-color: #2b6cb0 !important;
+    color: white !important;
+  }
+
+  .print-patient-section {
+    background-color: #ebf8ff !important;
+  }
+
+  .print-general-info {
+    background-color: #f7fafc !important;
+  }
+
+  /* Evitar saltos de página en medio de secciones */
+  .print-section,
+  .medication-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Encabezado */
+  .print-header {
+    border-bottom: 2pt solid #2b6cb0 !important;
+    margin-bottom: 10px !important;
+  }
+
+  .print-title h1 {
+    font-size: 18pt !important;
+    color: #1a365d !important;
+  }
+
+  /* Secciones */
+  .section-title {
+    font-size: 11pt !important;
+    border-bottom: 1pt solid #2b6cb0 !important;
+    color: #1a365d !important;
+  }
+}
+
+/* RESPONSIVE para pantalla */
+@media screen and (max-width: 768px) {
+  .print-toolbar {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .prescription-print {
+    width: 100%;
+    padding: 15px;
+  }
+
+  .print-header {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+
+  .print-order-number {
+    text-align: center;
+  }
+
+  .info-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .medications-table {
+    font-size: 9pt;
+  }
+
+  .medications-table th,
+  .medications-table td {
+    padding: 5px;
+  }
+
+  .print-footer {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+}
+

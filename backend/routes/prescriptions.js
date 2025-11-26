@@ -12,16 +12,22 @@ try {
 }
 const { authenticateToken } = require('../middleware/auth');
 const whatsappService = require('../services/whatsappService');
+const businessRules = require('../config/businessRules');
 
 /**
  * POST /api/prescriptions
  * Crear una nueva receta
  * Solo admin puede crear recetas
+ * ⚠️ OPERACIÓN CRÍTICA: Usa transacción de base de datos
  */
 router.post('/', authenticateToken, async (req, res) => {
+  // Obtener conexión del pool para usar transacción
+  const connection = await db.pool.getConnection();
+  
   try {
     // Verificar permisos: solo admin y médico pueden crear recetas
     if (req.user?.role !== 'admin' && req.user?.role !== 'medico') {
+      connection.release();
       return res.status(403).json({
         success: false,
         error: 'No tienes permiso para crear recetas. Solo administradores y médicos pueden crear recetas.'
@@ -30,13 +36,87 @@ router.post('/', authenticateToken, async (req, res) => {
     
     console.log('📝 POST /api/prescriptions - Usuario:', req.user?.username);
     console.log('📦 Datos recibidos:', JSON.stringify(req.body, null, 2));
-    const { patient_name, patient_id, patient_id_number, doctor_name, doctor_id, doctor_license, prescription_date, notes, items } = req.body;
+    const { patient_name, patient_id, patient_id_number, patient_phone,
+            doctor_name, doctor_id, doctor_license, prescription_date, notes, items,
+            specialty, service, attention_type } = req.body;
 
     if ((!patient_name && !patient_id) || (!doctor_name && !doctor_id) || !prescription_date || !items || items.length === 0) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'Faltan campos requeridos: patient_name o patient_id, doctor_name o doctor_id, prescription_date, items'
       });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VALIDACIONES DE NEGOCIO - CREAR RECETA
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Validar que la fecha de receta no sea futura
+    const prescriptionDateObj = new Date(prescription_date);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // Fin del día
+    
+    if (prescriptionDateObj > today) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.PRESCRIPTION_DATE_FUTURE
+      });
+    }
+
+    // Validar cantidad máxima de items
+    if (items.length > businessRules.MAX_ITEMS_PER_PRESCRIPTION) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.formatErrorMessage(
+          businessRules.ERROR_MESSAGES.PRESCRIPTION_TOO_MANY_ITEMS,
+          { max: businessRules.MAX_ITEMS_PER_PRESCRIPTION }
+        )
+      });
+    }
+
+    // Validar cada item: producto existe y cantidad válida
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      
+      // Validar que quantity_required sea positivo
+      const qty = parseInt(item.quantity_required, 10);
+      if (isNaN(qty) || qty < businessRules.MIN_QUANTITY) {
+        connection.release();
+        return res.status(400).json({
+          success: false,
+          error: `Item ${i + 1}: ${businessRules.ERROR_MESSAGES.QUANTITY_INVALID}`
+        });
+      }
+      
+      if (qty > businessRules.MAX_QUANTITY_PER_OPERATION) {
+        connection.release();
+        return res.status(400).json({
+          success: false,
+          error: `Item ${i + 1}: ${businessRules.formatErrorMessage(
+            businessRules.ERROR_MESSAGES.QUANTITY_EXCEEDS_MAX,
+            { max: businessRules.MAX_QUANTITY_PER_OPERATION }
+          )}`
+        });
+      }
+
+      // Validar que el producto exista
+      if (item.product_id) {
+        try {
+          const product = await db.getProductById(parseInt(item.product_id, 10));
+          if (!product) {
+            connection.release();
+            return res.status(400).json({
+              success: false,
+              error: `Item ${i + 1}: Producto con ID ${item.product_id} no encontrado.`
+            });
+          }
+        } catch (productErr) {
+          console.warn(`⚠️ Error al verificar producto ${item.product_id}:`, productErr.message);
+        }
+      }
     }
 
     // Obtener información del paciente si está registrado
@@ -69,6 +149,7 @@ router.post('/', authenticateToken, async (req, res) => {
     let finalDoctorName = doctor_name || '';
     let finalDoctorLicense = doctor_license || null;
     let finalDoctorId = null;
+    let doctorSpecialty = null;
     
     if (req.user?.role === 'medico') {
       try {
@@ -81,6 +162,7 @@ router.post('/', authenticateToken, async (req, res) => {
         }
 
         if (!doctorProfile) {
+          connection.release();
           return res.status(400).json({
             success: false,
             error: 'No se encontró un perfil médico asociado a tu usuario. Solicita al administrador que vincule tus datos.'
@@ -90,7 +172,9 @@ router.post('/', authenticateToken, async (req, res) => {
         finalDoctorId = doctorProfile.id || null;
         finalDoctorName = doctorProfile.name || doctorProfile.username || finalDoctorName;
         finalDoctorLicense = doctorProfile.license_number || finalDoctorLicense;
+        doctorSpecialty = doctorProfile.specialty || null;
       } catch (profileError) {
+        connection.release();
         console.error('✗ Error al obtener el perfil del médico autenticado:', profileError);
         return res.status(500).json({
           success: false,
@@ -113,6 +197,7 @@ router.post('/', authenticateToken, async (req, res) => {
           if (doctor) {
             finalDoctorName = doctor.name || finalDoctorName;
             finalDoctorLicense = doctor.license_number || finalDoctorLicense;
+            doctorSpecialty = doctor.specialty || null;
           }
         } catch (doctorError) {
           console.warn('⚠️ No se pudo obtener información del doctor:', doctorError.message);
@@ -136,6 +221,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // Validar que tenemos al menos nombre de paciente y doctor
     if (!finalPatientName || finalPatientName.trim() === '') {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'El nombre del paciente es requerido'
@@ -143,11 +229,18 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     
     if (!finalDoctorName || finalDoctorName.trim() === '') {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'El nombre del médico es requerido'
       });
     }
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // INICIO DE TRANSACCIÓN - Crear receta con todos sus items de forma atómica
+    // ═══════════════════════════════════════════════════════════════════════════
+    await connection.beginTransaction();
+    console.log('🔄 Transacción iniciada para crear receta');
     
     // Crear receta
     const prescriptionId = await db.createPrescription({
@@ -156,12 +249,17 @@ router.post('/', authenticateToken, async (req, res) => {
       patient_name: finalPatientName.trim(),
       patient_id: finalPatientId,
       patient_id_number: finalPatientIdNumber,
+      patient_phone: patient_phone || null,
       doctor_name: finalDoctorName.trim(),
       doctor_id: finalDoctorId,
       doctor_license: finalDoctorLicense,
       prescription_date,
       notes: notes || null,
-      created_by: req.userId
+      created_by: req.userId,
+      // Nuevos campos de formato institucional
+      specialty: specialty || doctorSpecialty || null,
+      service: service || 'Farmacia Consulta Externa',
+      attention_type: attention_type || 'Consulta Externa'
     });
 
     // Agregar items
@@ -172,23 +270,37 @@ router.post('/', authenticateToken, async (req, res) => {
         console.log(`📦 Item ${i + 1}/${items.length}:`, {
           product_id: item.product_id,
           quantity_required: item.quantity_required,
-          instructions: item.instructions
+          instructions: item.instructions,
+          administration_route: item.administration_route,
+          dosage: item.dosage,
+          duration: item.duration
         });
         await db.addPrescriptionItem(prescriptionId, {
           product_id: item.product_id,
           quantity_required: item.quantity_required,
-          instructions: item.instructions
+          instructions: item.instructions,
+          // Nuevos campos de formato institucional
+          administration_route: item.administration_route || 'Oral',
+          dosage: item.dosage || null,
+          duration: item.duration || null,
+          item_code: item.item_code || null
         });
         console.log(`✅ Item ${i + 1} agregado correctamente`);
       } catch (itemError) {
         console.error(`❌ Error al agregar item ${i + 1}:`, itemError);
         console.error('Item que falló:', item);
-        // Continuar con los demás items en lugar de fallar completamente
-        // pero registrar el error
+        // Hacer rollback de la transacción
+        await connection.rollback();
+        console.log('⚠️ Transacción revertida por error en item');
         throw new Error(`Error al agregar item ${i + 1}: ${itemError.message}`);
       }
     }
-    console.log(`✅ Todos los items agregados correctamente`);
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COMMIT DE TRANSACCIÓN - Todos los items agregados correctamente
+    // ═══════════════════════════════════════════════════════════════════════════
+    await connection.commit();
+    console.log('✅ Transacción completada exitosamente - Receta y todos los items creados');
 
     // Obtener receta completa
     const prescription = await db.getPrescriptionById(prescriptionId);
@@ -220,6 +332,14 @@ router.post('/', authenticateToken, async (req, res) => {
       prescription_code: prescriptionCode
     });
   } catch (error) {
+    // Intentar rollback si la transacción estaba activa
+    try {
+      await connection.rollback();
+      console.log('⚠️ Transacción revertida por error general');
+    } catch (rollbackError) {
+      // Ignorar error de rollback si la transacción no estaba activa
+    }
+    
     console.error('✗ Error al crear receta:', error);
     console.error('Stack:', error.stack);
     res.status(500).json({
@@ -227,6 +347,10 @@ router.post('/', authenticateToken, async (req, res) => {
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
+  } finally {
+    // Siempre liberar la conexión al pool
+    connection.release();
+    console.log('🔓 Conexión liberada al pool');
   }
 });
 
@@ -341,7 +465,9 @@ router.get('/:code', authenticateToken, async (req, res) => {
     console.log('📋 Datos de receta:', {
       id: prescription.id,
       prescription_code: prescription.prescription_code,
-      patient_name: prescription.patient_name
+      patient_name: prescription.patient_name,
+      patient_dni: prescription.patient_dni,
+      doctor_specialty: prescription.doctor_specialty
     });
     
     // Obtener teléfono del paciente si tiene patient_id
@@ -452,8 +578,12 @@ router.get('/:id/items', authenticateToken, async (req, res) => {
 /**
  * PUT /api/prescriptions/:id/fulfill
  * Despachar un item de receta
+ * ⚠️ OPERACIÓN CRÍTICA: Usa transacción de base de datos
  */
 router.put('/:id/fulfill', authenticateToken, async (req, res) => {
+  // Obtener conexión del pool para usar transacción
+  const connection = await db.pool.getConnection();
+  
   try {
     const { id } = req.params;
     const { prescription_item_id, batch_id, quantity } = req.body;
@@ -464,6 +594,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const quantityValue = parseInt(quantity, 10);
 
     if (!prescription_item_id || !batch_id || !quantity) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'Faltan campos requeridos: prescription_item_id, batch_id, quantity'
@@ -474,6 +605,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     if (isNaN(prescriptionItemId) || prescriptionItemId <= 0 ||
         isNaN(batchId) || batchId <= 0 ||
         isNaN(quantityValue) || quantityValue <= 0) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'Los campos prescription_item_id, batch_id y quantity deben ser números válidos'
@@ -481,23 +613,84 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     }
 
     if (quantityValue <= 0) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'La cantidad debe ser un número mayor a 0'
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VALIDACIONES DE NEGOCIO - DESPACHAR RECETA
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Obtener la receta para validaciones
+    const prescription = await db.getPrescriptionById(parseInt(id));
+    if (!prescription) {
+      connection.release();
+      return res.status(404).json({
+        success: false,
+        error: 'Receta no encontrada'
+      });
+    }
+
+    // Validar que la receta no esté cancelada
+    if (prescription.status === 'cancelled') {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.PRESCRIPTION_CANCELLED
+      });
+    }
+
+    // Validar que la receta no esté ya completamente despachada
+    if (prescription.status === 'fulfilled') {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.PRESCRIPTION_FULFILLED
+      });
+    }
+
+    // Validar vigencia de la receta (30 días por defecto)
+    if (businessRules.isPrescriptionExpired(prescription.prescription_date)) {
+      const remainingDays = businessRules.getPrescriptionRemainingDays(prescription.prescription_date);
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.formatErrorMessage(
+          businessRules.ERROR_MESSAGES.PRESCRIPTION_EXPIRED,
+          { days: businessRules.PRESCRIPTION_VALIDITY_DAYS }
+        ),
+        prescription_date: prescription.prescription_date,
+        days_expired: Math.abs(remainingDays)
+      });
+    }
+
     // Verificar que el batch existe y tiene stock
     const batch = await db.getBatchById(batchId);
     if (!batch) {
+      connection.release();
       return res.status(404).json({
         success: false,
         error: 'Lote no encontrado'
       });
     }
 
+    // Validar que el lote no esté vencido
+    if (!businessRules.ALLOW_EXPIRED_BATCH_DISPATCH && businessRules.isBatchExpired(batch.expiry_date)) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: businessRules.ERROR_MESSAGES.BATCH_EXPIRED,
+        batch_expiry_date: batch.expiry_date,
+        days_expired: Math.abs(businessRules.getDaysUntilExpiry(batch.expiry_date))
+      });
+    }
+
     // Verificar si el medicamento está agotado
     if (batch.quantity === 0) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: 'Medicamento agotado',
@@ -511,6 +704,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const item = items.find(i => i.id === prescriptionItemId);
     
     if (!item) {
+      connection.release();
       return res.status(404).json({
         success: false,
         error: 'Item de receta no encontrado'
@@ -524,6 +718,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     // Verificar que no se exceda la cantidad requerida total
     const totalDispensed = quantityAlreadyDispensed + quantityValue;
     if (totalDispensed > item.quantity_required) {
+      connection.release();
       return res.status(400).json({
         success: false,
         error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${quantityAlreadyDispensed} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
@@ -541,6 +736,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       isPartialDispatch = true;
       
       if (actualQuantityToDispense <= 0) {
+        connection.release();
         return res.status(400).json({
           success: false,
           error: `Stock insuficiente. Disponible: ${batch.quantity} unidades individuales, pero ya se despachó todo lo requerido (${quantityAlreadyDispensed}/${item.quantity_required})`
@@ -554,14 +750,26 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // INICIO DE TRANSACCIÓN - Despachar item y decrementar stock de forma atómica
+    // ═══════════════════════════════════════════════════════════════════════════
+    await connection.beginTransaction();
+    console.log('🔄 Transacción iniciada para despacho de receta');
+    
     // Despachar item (usar cantidad ajustada para despacho parcial)
     await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, actualQuantityToDispense, req.userId);
 
     // Retirar stock del lote (usar cantidad ajustada)
     await db.decrementBatchStock(batch.rfid_uid, actualQuantityToDispense, null);
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // COMMIT DE TRANSACCIÓN - Despacho y decremento de stock completados
+    // ═══════════════════════════════════════════════════════════════════════════
+    await connection.commit();
+    console.log('✅ Transacción de despacho completada exitosamente');
 
     // Obtener receta actualizada
-    const prescription = await db.getPrescriptionById(parseInt(id));
+    const updatedPrescription = await db.getPrescriptionById(parseInt(id));
     const updatedItems = await db.getPrescriptionItems(parseInt(id));
 
     // Calcular stock restante del lote
@@ -601,7 +809,7 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const responseData = {
       success: true,
       data: {
-        ...prescription,
+        ...updatedPrescription,
         items: filteredItems,
         items_count: filteredItems.length
       },
@@ -618,11 +826,22 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     
     res.json(responseData);
   } catch (error) {
+    // Intentar rollback si la transacción estaba activa
+    try {
+      await connection.rollback();
+      console.log('⚠️ Transacción de despacho revertida por error');
+    } catch (rollbackError) {
+      // Ignorar error de rollback si la transacción no estaba activa
+    }
+    
     console.error('Error al despachar item:', error);
     res.status(500).json({
       success: false,
       error: error.message
     });
+  } finally {
+    // Siempre liberar la conexión al pool
+    connection.release();
   }
 });
 
@@ -731,7 +950,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (req.user?.role === 'farmaceutico') {
       return res.status(403).json({
         success: false,
-        error: 'No tienes permiso para cancelar recetas. Solo los administradores pueden cancelar recetas.'
+        error: businessRules.ERROR_MESSAGES.ROLE_CANNOT_CANCEL
       });
     }
     
@@ -746,7 +965,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     
     // Validar que el status sea válido
-    const validStatuses = ['pending', 'partial', 'fulfilled', 'cancelled'];
+    const validStatuses = Object.values(businessRules.PRESCRIPTION_STATUSES);
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -761,6 +980,24 @@ router.put('/:id', authenticateToken, async (req, res) => {
         success: false,
         error: 'Receta no encontrada'
       });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VALIDACIONES DE NEGOCIO - CANCELAR RECETA
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Si se intenta cancelar, validar que no tenga despachos
+    if (status === 'cancelled') {
+      // Verificar si la receta tiene items despachados
+      const items = await db.getPrescriptionItems(parseInt(id));
+      const hasDispensedItems = items.some(item => (item.quantity_dispensed || 0) > 0);
+      
+      if (hasDispensedItems || prescription.status === 'partial' || prescription.status === 'fulfilled') {
+        return res.status(400).json({
+          success: false,
+          error: businessRules.ERROR_MESSAGES.PRESCRIPTION_ALREADY_DISPATCHED
+        });
+      }
     }
     
     // Actualizar el estado

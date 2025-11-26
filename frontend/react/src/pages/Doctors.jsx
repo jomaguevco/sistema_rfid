@@ -88,6 +88,16 @@ export default function Doctors() {
   const columns = [
     { key: 'name', field: 'name', header: 'Nombre', className: 'col-name' },
     { 
+      key: 'user_username', 
+      field: 'user_username', 
+      header: 'Usuario',
+      render: (value) => value ? (
+        <span className="username-badge">{value}</span>
+      ) : (
+        <span className="no-user">Sin usuario</span>
+      )
+    },
+    { 
       key: 'specialty', 
       field: 'specialty', 
       header: 'Especialidad',

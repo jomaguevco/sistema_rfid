@@ -1,8 +1,24 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../database_medical');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sistema-medico-rfid-secret-key-change-in-production';
+// Generar JWT_SECRET seguro si no está configurado
+const DEFAULT_JWT_SECRET = crypto.randomBytes(32).toString('hex');
+
+// En producción, JWT_SECRET debe estar configurado explícitamente
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.error('⚠️  ADVERTENCIA DE SEGURIDAD: JWT_SECRET no está configurado en producción.');
+  console.error('   Esto es un riesgo de seguridad. Configure la variable de entorno JWT_SECRET.');
+  console.error('   Usando un secreto aleatorio temporal (los tokens no persistirán entre reinicios).');
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+// Log informativo sobre la configuración (solo en desarrollo)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('🔐 JWT configurado:', process.env.JWT_SECRET ? 'Secreto personalizado' : 'Secreto generado automáticamente');
+}
 
 /**
  * Middleware de autenticación JWT

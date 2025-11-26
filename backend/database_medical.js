@@ -1213,9 +1213,10 @@ async function createArea(areaData) {
 async function getAllDoctors(filters = {}) {
   try {
     let query = `
-      SELECT d.*, a.name as area_name
+      SELECT d.*, a.name as area_name, u.username as user_username
       FROM doctors d
       LEFT JOIN areas a ON d.area_id = a.id
+      LEFT JOIN users u ON d.email = u.email AND u.role = 'medico'
       WHERE 1=1
     `;
     const params = [];
@@ -1472,28 +1473,33 @@ async function deletePatient(id) {
  */
 async function getAllPharmacists(filters = {}) {
   try {
-    let query = 'SELECT * FROM pharmacists WHERE 1=1';
+    let query = `
+      SELECT p.*, u.username as user_username
+      FROM pharmacists p
+      LEFT JOIN users u ON p.email = u.email AND u.role = 'farmaceutico'
+      WHERE 1=1
+    `;
     const params = [];
 
     if (filters.search) {
-      query += ' AND (name LIKE ? OR id_number LIKE ? OR license_number LIKE ? OR email LIKE ?)';
+      query += ' AND (p.name LIKE ? OR p.id_number LIKE ? OR p.license_number LIKE ? OR p.email LIKE ?)';
       const searchTerm = `%${filters.search}%`;
       params.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
     if (filters.id_number) {
-      query += ' AND id_number = ?';
+      query += ' AND p.id_number = ?';
       params.push(filters.id_number);
     }
     if (filters.license_number) {
-      query += ' AND license_number = ?';
+      query += ' AND p.license_number = ?';
       params.push(filters.license_number);
     }
     if (filters.is_active !== undefined) {
-      query += ' AND is_active = ?';
+      query += ' AND p.is_active = ?';
       params.push(filters.is_active);
     }
 
-    query += ' ORDER BY name';
+    query += ' ORDER BY p.name';
 
     const [rows] = await pool.execute(query, params);
     return rows;
@@ -2800,8 +2806,9 @@ async function createScheduledReportExecution(executionData) {
 async function createPrescription(prescriptionData) {
   try {
     console.log('💾 Creando receta con datos:', JSON.stringify(prescriptionData, null, 2));
-    const { prescription_code, qr_code, patient_name, patient_id, patient_id_number, 
-            doctor_name, doctor_id, doctor_license, prescription_date, notes, created_by } = prescriptionData;
+    const { prescription_code, qr_code, patient_name, patient_id, patient_id_number, patient_phone,
+            doctor_name, doctor_id, doctor_license, prescription_date, notes, created_by,
+            specialty, service, attention_type } = prescriptionData;
     
     // Verificar qué columnas existen en la tabla
     const [columns] = await pool.execute(`
@@ -2832,6 +2839,12 @@ async function createPrescription(prescriptionData) {
       insertFields.push('patient_id_number');
       insertValues.push(patient_id_number && patient_id_number.trim() ? patient_id_number.trim() : null);
     }
+
+    // patient_phone - teléfono del paciente
+    if (columnMap['patient_phone']) {
+      insertFields.push('patient_phone');
+      insertValues.push(patient_phone && patient_phone.trim() ? patient_phone.trim() : null);
+    }
     
     if (columnMap['doctor_id']) {
       insertFields.push('doctor_id');
@@ -2856,12 +2869,44 @@ async function createPrescription(prescriptionData) {
       const createdByValue = created_by ? parseInt(created_by) : null;
       insertValues.push(isNaN(createdByValue) ? null : createdByValue);
     }
+
+    // Nuevos campos de formato institucional
+    if (columnMap['specialty']) {
+      insertFields.push('specialty');
+      insertValues.push(specialty && specialty.trim() ? specialty.trim() : null);
+    }
+
+    if (columnMap['service']) {
+      insertFields.push('service');
+      insertValues.push(service && service.trim() ? service.trim() : 'Farmacia Consulta Externa');
+    }
+
+    if (columnMap['attention_type']) {
+      insertFields.push('attention_type');
+      insertValues.push(attention_type && attention_type.trim() ? attention_type.trim() : 'Consulta Externa');
+    }
+
+    // Generar número de comprobante automáticamente
+    if (columnMap['receipt_number']) {
+      insertFields.push('receipt_number');
+      // Se generará después de la inserción con el ID
+      insertValues.push(null);
+    }
     
     const placeholders = insertFields.map(() => '?').join(', ');
     const [result] = await pool.execute(
       `INSERT INTO prescriptions (${insertFields.join(', ')}) VALUES (${placeholders})`,
       insertValues
     );
+
+    // Actualizar el número de comprobante con el ID generado
+    if (columnMap['receipt_number']) {
+      const receiptNumber = `ORD-${String(result.insertId).padStart(7, '0')}`;
+      await pool.execute(
+        `UPDATE prescriptions SET receipt_number = ? WHERE id = ?`,
+        [receiptNumber, result.insertId]
+      );
+    }
     
     console.log('✅ Receta creada con ID:', result.insertId);
     return result.insertId;
@@ -2881,10 +2926,14 @@ async function getPrescriptionByCode(prescriptionCode) {
     const [rows] = await pool.execute(
       `SELECT p.*, 
               u1.username as created_by_username,
-              u2.username as fulfilled_by_username
+              u2.username as fulfilled_by_username,
+              d.specialty as doctor_specialty,
+              pat.id_number as patient_dni
        FROM prescriptions p
        LEFT JOIN users u1 ON p.created_by = u1.id
        LEFT JOIN users u2 ON p.fulfilled_by = u2.id
+       LEFT JOIN doctors d ON p.doctor_name = d.name OR p.doctor_license = d.license_number
+       LEFT JOIN patients pat ON p.patient_id = pat.id
        WHERE p.prescription_code = ?`,
       [prescriptionCode]
     );
@@ -3058,7 +3107,8 @@ async function addPrescriptionItem(prescriptionId, itemData) {
     }
     
     console.log('📦 Agregando item a receta ID:', prescriptionIdNum, itemData);
-    const { product_id, quantity_required, instructions } = itemData;
+    const { product_id, quantity_required, instructions, 
+            administration_route, dosage, duration, item_code } = itemData;
     
     // Validar que product_id sea un número
     const productIdNum = parseInt(product_id);
@@ -3074,9 +3124,19 @@ async function addPrescriptionItem(prescriptionId, itemData) {
     
     const [result] = await pool.execute(
       `INSERT INTO prescription_items 
-       (prescription_id, product_id, quantity_required, instructions)
-       VALUES (?, ?, ?, ?)`,
-      [prescriptionIdNum, productIdNum, quantityNum, instructions || null]
+       (prescription_id, product_id, quantity_required, instructions, 
+        administration_route, dosage, duration, item_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        prescriptionIdNum, 
+        productIdNum, 
+        quantityNum, 
+        instructions || null,
+        administration_route || 'Oral',
+        dosage || null,
+        duration || null,
+        item_code || null
+      ]
     );
     
     console.log('✅ Item agregado con ID:', result.insertId, 'para receta:', prescriptionIdNum);

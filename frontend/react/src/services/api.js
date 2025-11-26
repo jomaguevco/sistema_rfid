@@ -41,12 +41,21 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Manejar errores 401 (No autorizado) y 403 (Prohibido)
-    if (error.response?.status === 401 || error.response?.status === 403) {
-      console.error('❌ Error de autenticación:', {
-        status: error.response.status,
+    const status = error.response?.status
+    const url = error.config?.url || ''
+    
+    // Endpoints que pueden devolver 403/404 sin ser error de sesión
+    const ignoredEndpoints = ['/doctors/me', '/patients/me']
+    const isIgnoredEndpoint = ignoredEndpoints.some(ep => url.includes(ep))
+    
+    // Solo cerrar sesión en 401 (token inválido/expirado)
+    // No cerrar sesión en 403 de endpoints conocidos (permisos, no auth)
+    // No cerrar sesión en 404 (recurso no encontrado)
+    if (status === 401) {
+      console.error('❌ Token inválido o expirado:', {
+        status: status,
         message: error.response.data?.error,
-        path: error.config?.url
+        path: url
       })
       
       // Limpiar datos de sesión
@@ -58,7 +67,15 @@ api.interceptors.response.use(
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }
+    } else if (status === 403 && !isIgnoredEndpoint) {
+      // 403 en endpoints no ignorados podría ser sesión expirada
+      console.warn('⚠️ Acceso denegado:', {
+        status: status,
+        message: error.response.data?.error,
+        path: url
+      })
     }
+    
     return Promise.reject(error)
   }
 )

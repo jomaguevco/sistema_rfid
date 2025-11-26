@@ -66,6 +66,23 @@
   flex-wrap: nowrap;
 }
 
+.username-badge {
+  display: inline-block;
+  padding: var(--spacing-1) var(--spacing-2);
+  background-color: #e0f2fe;
+  color: #0369a1;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  font-family: 'Courier New', monospace;
+}
+
+.no-user {
+  color: var(--color-gray-400);
+  font-style: italic;
+  font-size: var(--font-size-sm);
+}
+
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;

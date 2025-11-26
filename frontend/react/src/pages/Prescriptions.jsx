@@ -12,6 +12,7 @@ import Loading from '../components/common/Loading'
 import { HiSearch, HiPlus, HiWifi, HiStop, HiClipboardList, HiEye, HiPrinter, HiX, HiFilter } from 'react-icons/hi'
 import PrescriptionDetail from '../components/prescriptions/PrescriptionDetail'
 import PrescriptionForm from '../components/prescriptions/PrescriptionForm'
+import PrescriptionPrintView from '../components/prescriptions/PrescriptionPrintView'
 import DispenseModal from '../components/prescriptions/DispenseModal'
 import DeleteConfirmModal from '../components/common/DeleteConfirmModal'
 import './Prescriptions.css'
@@ -25,6 +26,7 @@ export default function Prescriptions() {
   const [showDispense, setShowDispense] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [showCancel, setShowCancel] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [filters, setFilters] = useState({
     status: '',
@@ -35,6 +37,7 @@ export default function Prescriptions() {
   })
   const canCreate = canPerformAction('prescriptions', 'create')
   const canCancel = canPerformAction('prescriptions', 'update')
+  const canDispense = canPerformAction('prescriptions', 'fulfill')
 
   const { data: prescriptions, isLoading } = useQuery({
     queryKey: ['prescriptions', searchCode, filters],
@@ -133,7 +136,7 @@ export default function Prescriptions() {
             <HiEye />
             Ver
           </Button>
-          {row.status !== 'fulfilled' && row.status !== 'cancelled' && (
+          {row.status !== 'fulfilled' && row.status !== 'cancelled' && canDispense && (
             <Button size="sm" variant="primary" onClick={() => handleDispense(row)}>
               Despachar
             </Button>
@@ -200,8 +203,8 @@ export default function Prescriptions() {
   }
 
   const handlePrint = (prescription) => {
-    // Implementar impresión de receta
-    window.print()
+    setSelectedPrescription(prescription)
+    setShowPrint(true)
   }
 
   return (
@@ -358,6 +361,17 @@ export default function Prescriptions() {
           itemName={`Receta ${selectedPrescription.prescription_code}`}
           loading={cancelMutation.isPending}
           message="¿Estás seguro de que deseas cancelar esta receta? Esta acción no se puede deshacer."
+        />
+      )}
+
+      {showPrint && selectedPrescription && (
+        <PrescriptionPrintView
+          prescription={selectedPrescription}
+          isOpen={showPrint}
+          onClose={() => {
+            setShowPrint(false)
+            setSelectedPrescription(null)
+          }}
         />
       )}
     </div>
