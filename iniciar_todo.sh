@@ -245,7 +245,7 @@ sleep 3
 # Verificar que inició correctamente
 if check_port 3000; then
     echo -e "${GREEN}✅ Backend RFID iniciado correctamente (PID: $RFID_PID)${NC}"
-    echo -e "${GREEN}   📍 URL: http://localhost:3000${NC}"
+    echo -e "${GREEN}   📍 URL: https://localhost:3000${NC}"
     echo -e "${GREEN}   📄 Logs: $LOG_RFID${NC}"
 else
     echo -e "${RED}❌ Error al iniciar el backend RFID${NC}"
@@ -281,7 +281,7 @@ if [ "$FRONTEND_AVAILABLE" = true ]; then
     # Verificar que inició correctamente
     if check_port 5173; then
         echo -e "${GREEN}✅ Frontend React iniciado correctamente (PID: $FRONTEND_PID)${NC}"
-        echo -e "${GREEN}   📍 URL: http://localhost:5173${NC}"
+        echo -e "${GREEN}   📍 URL: https://localhost:5173${NC}"
         echo -e "${GREEN}   📄 Logs: $LOG_FRONTEND${NC}"
     else
         echo -e "${YELLOW}⚠️  Frontend puede estar iniciando...${NC}"
