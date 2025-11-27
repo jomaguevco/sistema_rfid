@@ -342,6 +342,12 @@ export default function QRScanner() {
   }
 
   const handleDispenseSuccess = () => {
+    // No cerrar el modal automáticamente - el usuario puede seguir despachando
+    // Solo refrescar los datos de la receta
+    refetch()
+  }
+
+  const handleDispenseModalClose = () => {
     setShowDispenseModal(false)
     setQrCode('')
     setManualCode('')
@@ -657,7 +663,7 @@ export default function QRScanner() {
         <QRDispenseModal
           prescription={prescription}
           isOpen={showDispenseModal}
-          onClose={() => setShowDispenseModal(false)}
+          onClose={handleDispenseModalClose}
           onSuccess={handleDispenseSuccess}
         />
       )}

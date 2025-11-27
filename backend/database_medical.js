@@ -988,10 +988,14 @@ async function deleteBatch(batchId) {
  * @param {string} rfidUid - UID del RFID
  * @param {number} quantity - Cantidad a retirar (default: 1)
  * @param {number} areaId - ID del área (opcional)
+ * @param {Object} connection - Conexión de transacción opcional (para usar dentro de transacciones)
  * @returns {Promise<Object>} - Lote actualizado
  */
-async function decrementBatchStock(rfidUid, quantity = 1, areaId = null) {
+async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connection = null) {
   try {
+    // Usar la conexión proporcionada o el pool general
+    const db = connection || pool;
+    
     const batch = await getBatchByRfidUid(rfidUid);
 
     if (!batch) {
@@ -1017,14 +1021,14 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null) {
       throw new Error(`Stock insuficiente. Disponible: ${batch.quantity} unidades, Requerido: ${validatedQuantity} unidades. La cantidad resultante no puede ser negativa.`);
     }
 
-    // Actualizar cantidad del lote
-    await pool.execute(
+    // Actualizar cantidad del lote (usando la conexión de transacción si está disponible)
+    await db.execute(
       'UPDATE product_batches SET quantity = ? WHERE id = ?',
       [newQuantity, batch.id]
     );
 
-    // Registrar en historial
-    await pool.execute(
+    // Registrar en historial (usando la conexión de transacción si está disponible)
+    await db.execute(
       `INSERT INTO stock_history 
        (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
        VALUES (?, ?, ?, ?, ?, 'remove', CURDATE(), ?)`,
@@ -1032,7 +1036,7 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null) {
     );
 
     // Verificar si hay otros lotes más antiguos (FIFO)
-    const [olderBatches] = await pool.execute(
+    const [olderBatches] = await db.execute(
       `SELECT id FROM product_batches 
        WHERE product_id = ? AND id != ? AND quantity > 0 
        AND (expiry_date < ? OR (expiry_date = ? AND entry_date < ?))

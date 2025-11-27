@@ -10,7 +10,7 @@ import Loading from '../components/common/Loading'
 import Table from '../components/common/Table'
 import Badge from '../components/common/Badge'
 import { formatRfidCode, normalizeRfidCode } from '../utils/formatting'
-import { HiArrowDown, HiWifi, HiStop, HiCheckCircle, HiPlus, HiTrash, HiX, HiSearch } from 'react-icons/hi'
+import { HiArrowDown, HiWifi, HiStop, HiCheckCircle, HiPlus, HiTrash, HiX, HiSearch, HiRefresh } from 'react-icons/hi'
 import './StockEntry.css'
 
 // Hook para debounce
@@ -41,8 +41,10 @@ export default function StockEntry() {
   const [batchData, setBatchData] = useState({
     lot_number: '',
     expiry_date: '',
-    quantity: 1
+    quantity: 1,
+    boxes: 1  // Nuevo campo para cantidad de cajas
   })
+  const [entryMode, setEntryMode] = useState('boxes') // 'boxes' o 'units' - por defecto cajas
   const [errors, setErrors] = useState({})
   const [processing, setProcessing] = useState(false)
   const [multipleMode, setMultipleMode] = useState(false)
@@ -96,15 +98,27 @@ export default function StockEntry() {
     setSearchProduct('')
     setScannedRfid(null)
     setShowBatchForm(false)
-    // Inicializar cantidad en 1 (siempre unidades individuales)
-    // El usuario debe ingresar la cantidad total de unidades individuales
+    // Inicializar con 1 caja por defecto
+    const unitsPerBox = product?.units_per_package || 1
     setBatchData({
       lot_number: '',
       expiry_date: '',
-      quantity: 1
+      quantity: unitsPerBox,  // Por defecto 1 caja = units_per_package unidades
+      boxes: 1
     })
+    // Si el producto tiene más de 1 unidad por caja, usar modo cajas por defecto
+    setEntryMode(unitsPerBox > 1 ? 'boxes' : 'units')
     setErrors({})
     setPendingEntries([])
+  }
+
+  // Calcular cantidad total basado en el modo de entrada
+  const calculateTotalQuantity = () => {
+    const unitsPerBox = selectedProduct?.units_per_package || 1
+    if (entryMode === 'boxes' && unitsPerBox > 1) {
+      return (batchData.boxes || 1) * unitsPerBox
+    }
+    return batchData.quantity || 1
   }
 
   const handleStartScan = () => {
@@ -147,8 +161,8 @@ export default function StockEntry() {
       }
     }
     
-    // Validar que quantity sea un número válido
-    const quantityValue = parseInt(batchData.quantity)
+    // Usar cantidad total calculada (considera modo cajas vs unidades)
+    const quantityValue = calculateTotalQuantity()
     if (!quantityValue || quantityValue < VALIDATION_RULES.MIN_QUANTITY || isNaN(quantityValue)) {
       newErrors.quantity = 'La cantidad debe ser un número mayor a 0'
     } else if (quantityValue > VALIDATION_RULES.MAX_QUANTITY_PER_OPERATION) {
@@ -182,7 +196,7 @@ export default function StockEntry() {
       setProcessing(true)
       setErrors({})
       
-      // Validar contra la base de datos
+      // Validar contra la base de datos (solo bloqueamos si es producto diferente)
       const validateRfidInDatabase = async () => {
         try {
           const normalizedRfid = normalizeRfidCode(scannedRfid) || scannedRfid
@@ -190,54 +204,39 @@ export default function StockEntry() {
           const existingBatches = existingBatchResponse.data.data || []
           
           if (existingBatches.length > 0) {
-            // Verificar si alguno de los lotes tiene stock activo (quantity > 0)
             const activeBatch = existingBatches.find(b => b.quantity > 0)
             
             if (activeBatch) {
-              const productName = activeBatch.product_name || 'Medicamento'
-              const expiryDate = activeBatch.expiry_date 
-                ? new Date(activeBatch.expiry_date).toLocaleDateString('es-ES')
-                : 'N/A'
-              
-              // Verificar si el RFID está asociado a un producto diferente
               const isDifferentProduct = activeBatch.product_id !== selectedProduct.id
               
+              // Solo bloqueamos si es un producto DIFERENTE
               if (isDifferentProduct) {
+                const productName = activeBatch.product_name || 'Medicamento'
+                const expiryDate = activeBatch.expiry_date 
+                  ? new Date(activeBatch.expiry_date).toLocaleDateString('es-ES')
+                  : 'N/A'
+                
                 setErrors({
-                  rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${activeBatch.product_id}). No puedes usar el mismo IDP para otro producto. Stock actual: ${activeBatch.quantity} unidades, Lote: ${activeBatch.lot_number}, Vence: ${expiryDate}`
-                })
-                setProcessing(false)
-                return false
-              } else {
-                setErrors({
-                  rfid: `Este IDP ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${productName}", lote ${activeBatch.lot_number}, vence ${expiryDate}). Solo se puede ingresar nuevamente cuando el stock llegue a 0.`
+                  rfid: `⚠️ IDP EN USO POR OTRO PRODUCTO: Este IDP ya está asignado a "${productName}". No puedes usarlo para "${selectedProduct.name}".\n\nDetalles: Stock ${activeBatch.quantity} unidades, Lote ${activeBatch.lot_number}, Vence ${expiryDate}`
                 })
                 setProcessing(false)
                 return false
               }
-            }
-            
-            // Si existe pero no tiene stock activo, verificar si es de otro producto
-            const batchWithDifferentProduct = existingBatches.find(b => b.product_id !== selectedProduct.id)
-            if (batchWithDifferentProduct) {
-              const productName = batchWithDifferentProduct.product_name || 'Medicamento'
-              setErrors({
-                rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${batchWithDifferentProduct.product_id}). No puedes usar el mismo IDP para otro producto.`
-              })
-              setProcessing(false)
-              return false
+              // Si es el mismo producto, permitir (el backend sumará el stock)
             }
           }
           
           // Si pasa todas las validaciones, agregar a lista pendiente
-          const quantityValue = parseInt(batchData.quantity) || 1
+          const totalQuantity = calculateTotalQuantity()
           const entry = {
             id: Date.now(),
             product: selectedProduct,
             rfid: scannedRfid,
             lot_number: batchData.lot_number.trim(),
             expiry_date: batchData.expiry_date,
-            quantity: quantityValue
+            quantity: totalQuantity,
+            boxes: batchData.boxes || 1,
+            entryMode: entryMode
           }
           setPendingEntries([...pendingEntries, entry])
           
@@ -246,17 +245,14 @@ export default function StockEntry() {
           setErrors({})
           setProcessing(false)
           
-          // NO reactivar escaneo automáticamente - el usuario debe presionar el botón
           return true
         } catch (checkError) {
-          // Si hay error al verificar, mostrar error pero permitir continuar con advertencia
           if (checkError.response?.status === 400) {
             const errorMessage = checkError.response?.data?.error || 'Error al verificar RFID'
             setErrors({ rfid: errorMessage })
             setProcessing(false)
             return false
           }
-          // Si es otro tipo de error, mostrar advertencia pero permitir agregar
           console.warn('Error al verificar RFID existente:', checkError)
           setErrors({ 
             rfid: '⚠️ No se pudo verificar si el RFID ya existe. Verifica manualmente antes de confirmar.' 
@@ -266,17 +262,16 @@ export default function StockEntry() {
         }
       }
       
-      // Ejecutar validación asíncrona
       await validateRfidInDatabase()
     } else {
       // Procesar inmediatamente
-      const quantityValue = parseInt(batchData.quantity) || 1
+      const totalQuantity = calculateTotalQuantity()
       processBatch({
         product_id: selectedProduct.id,
         rfid_uid: scannedRfid,
         lot_number: batchData.lot_number.trim(),
         expiry_date: batchData.expiry_date,
-        quantity: quantityValue
+        quantity: totalQuantity
       })
     }
   }
@@ -288,53 +283,36 @@ export default function StockEntry() {
 
       const normalizedRfid = normalizeRfidCode(batchDataToProcess.rfid_uid) || batchDataToProcess.rfid_uid
       
-      // Verificar si el RFID ya existe en la base de datos
+      // El backend ahora maneja la lógica de sumar stock si es el mismo producto
+      // Solo verificamos si es un producto diferente para mostrar advertencia más clara
       try {
         const existingBatchResponse = await api.get(`/batches?rfid_uid=${normalizedRfid}`)
         const existingBatches = existingBatchResponse.data.data || []
         
         if (existingBatches.length > 0) {
-          // Verificar si alguno de los lotes tiene stock activo (quantity > 0)
           const activeBatch = existingBatches.find(b => b.quantity > 0)
           
           if (activeBatch) {
-            const productName = activeBatch.product_name || 'Medicamento'
-            const expiryDate = activeBatch.expiry_date 
-              ? new Date(activeBatch.expiry_date).toLocaleDateString('es-ES')
-              : 'N/A'
-            
-            // Verificar si el RFID está asociado a un producto diferente
+            // Solo bloqueamos si es un producto DIFERENTE
             const isDifferentProduct = activeBatch.product_id !== selectedProduct.id
             
             if (isDifferentProduct) {
+              const productName = activeBatch.product_name || 'Medicamento'
+              const expiryDate = activeBatch.expiry_date 
+                ? new Date(activeBatch.expiry_date).toLocaleDateString('es-ES')
+                : 'N/A'
+              
               setErrors({
-                rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${activeBatch.product_id}). No puedes usar el mismo IDP para otro producto. Stock actual: ${activeBatch.quantity} unidades, Lote: ${activeBatch.lot_number}, Vence: ${expiryDate}`
+                rfid: `⚠️ IDP EN USO POR OTRO PRODUCTO: Este IDP (${formatRfidCode(normalizedRfid)}) ya está asignado a "${productName}". No puedes usarlo para "${selectedProduct.name}".\n\nDetalles del lote existente:\n- Stock actual: ${activeBatch.quantity} unidades\n- Lote: ${activeBatch.lot_number}\n- Vence: ${expiryDate}`
               })
-            } else {
-              setErrors({
-                rfid: `Este IDP ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${productName}", lote ${activeBatch.lot_number}, vence ${expiryDate}). Solo se puede ingresar nuevamente cuando el stock llegue a 0.`
-              })
+              setProcessing(false)
+              return
             }
-            setProcessing(false)
-            return
+            // Si es el mismo producto, dejamos que el backend sume el stock
           }
-          
-          // Si existe pero no tiene stock activo, verificar si es de otro producto
-          const batchWithDifferentProduct = existingBatches.find(b => b.product_id !== selectedProduct.id)
-          if (batchWithDifferentProduct) {
-            const productName = batchWithDifferentProduct.product_name || 'Medicamento'
-            setErrors({
-              rfid: `⚠️ IDP DUPLICADO: Este código RFID (${formatRfidCode(normalizedRfid)}) ya está registrado con el producto "${productName}" (ID: ${batchWithDifferentProduct.product_id}). No puedes usar el mismo IDP para otro producto.`
-            })
-            setProcessing(false)
-            return
-          }
-          
-          // Si existe pero es del mismo producto y sin stock activo, permitir continuar
-          console.log('RFID existe pero sin stock activo y del mismo producto, permitiendo ingreso')
         }
       } catch (checkError) {
-        // Si hay error al verificar, continuar (puede ser que no exista)
+        // Si hay error al verificar, continuar
         if (checkError.response?.status !== 400) {
           console.warn('Error al verificar RFID existente:', checkError)
         }
@@ -345,13 +323,18 @@ export default function StockEntry() {
         rfid_uid: normalizedRfid
       })
 
-      // Usar mensaje del backend si está disponible, sino usar mensaje por defecto
+      // Verificar si fue una suma de stock o creación de lote nuevo
+      const isStockAdded = response.data?.action === 'stock_added'
       const successMessage = response.data?.message || 'Lote creado correctamente'
 
       setLastProcessed({
         product: selectedProduct?.name || 'Medicamento',
         quantity: batchDataToProcess.quantity,
-        message: successMessage
+        message: successMessage,
+        action: response.data?.action || 'batch_created',
+        previous_quantity: response.data?.previous_quantity || null,
+        added_quantity: response.data?.added_quantity || null,
+        new_quantity: response.data?.new_quantity || null
       })
 
       // Detener escaneo si está activo (siempre)
@@ -362,10 +345,12 @@ export default function StockEntry() {
       
       // Limpiar formulario
       setShowBatchForm(false)
+      const unitsPerBox = selectedProduct?.units_per_package || 1
       setBatchData({
         lot_number: '',
         expiry_date: '',
-        quantity: 1
+        quantity: unitsPerBox,
+        boxes: 1
       })
       setScannedRfid(null)
       
@@ -374,46 +359,33 @@ export default function StockEntry() {
       queryClient.invalidateQueries(['stock'])
       queryClient.invalidateQueries(['products'])
 
-      // Limpiar después de 3 segundos
+      // Limpiar después de 4 segundos (un poco más para leer el mensaje)
       setTimeout(() => {
         setLastProcessed(null)
         if (!multipleMode) {
           setSelectedProduct(null)
         }
-      }, 3000)
+      }, 4000)
     } catch (err) {
       const errorMessage = err.response?.data?.error || 'Error al crear el lote'
       const batchInfo = err.response?.data?.batch_info || null
       
-      // Si es error de IDP duplicado o con stock activo, mostrarlo en el campo IDP
+      // Si es error de IDP duplicado (producto diferente)
       if (errorMessage.includes('IDP') || errorMessage.includes('RFID') || 
-          errorMessage.includes('duplicado') || errorMessage.includes('ya está registrado') ||
-          errorMessage.includes('stock activo')) {
+          errorMessage.includes('DUPLICADO') || errorMessage.includes('ya está registrado')) {
         let rfidError = errorMessage
         
-        // Si hay información adicional del lote, agregarla al mensaje
         if (batchInfo) {
           const expiryDate = batchInfo.expiry_date 
             ? new Date(batchInfo.expiry_date).toLocaleDateString('es-ES')
             : 'N/A'
           
-          // Verificar si es un producto diferente
-          const isDifferentProduct = batchInfo.product_id && selectedProduct && batchInfo.product_id !== selectedProduct.id
-          
-          if (isDifferentProduct) {
-            rfidError = `⚠️ IDP DUPLICADO: Este código RFID ya está registrado con el producto "${batchInfo.product_name || 'N/A'}" (ID: ${batchInfo.product_id}).\n\nNo puedes usar el mismo IDP para otro producto.\n\nDetalles del lote existente:\n- Producto: ${batchInfo.product_name || 'N/A'} (ID: ${batchInfo.product_id})\n- Cantidad: ${batchInfo.quantity || 0} unidades\n- Lote: ${batchInfo.lot_number || 'N/A'}\n- Vencimiento: ${expiryDate}`
-          } else {
-            rfidError = `${errorMessage}\n\nDetalles del lote existente:\n- Producto: ${batchInfo.product_name || 'N/A'}\n- Cantidad: ${batchInfo.quantity || 0} unidades\n- Lote: ${batchInfo.lot_number || 'N/A'}\n- Vencimiento: ${expiryDate}`
-          }
+          rfidError = `⚠️ ${errorMessage}\n\n📋 Detalles del lote existente:\n• Producto: ${batchInfo.product_name || 'N/A'}\n• Stock: ${batchInfo.quantity || 0} unidades\n• Lote: ${batchInfo.lot_number || 'N/A'}\n• Vence: ${expiryDate}`
         }
         
-        setErrors({
-          rfid: rfidError
-        })
+        setErrors({ rfid: rfidError })
       } else {
-        setErrors({
-          submit: errorMessage
-        })
+        setErrors({ submit: errorMessage })
       }
     } finally {
       setProcessing(false)
@@ -485,9 +457,20 @@ export default function StockEntry() {
     {
       key: 'quantity',
       header: 'Cantidad',
-      render: (_, row) => (
-        <Badge variant="success" size="sm">{row.quantity}</Badge>
-      )
+      render: (_, row) => {
+        const unitsPerBox = row.product?.units_per_package || 1
+        if (row.entryMode === 'boxes' && unitsPerBox > 1) {
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <Badge variant="success" size="sm">{row.quantity} unidades</Badge>
+              <span style={{ fontSize: '0.75rem', color: 'var(--color-gray-500)' }}>
+                ({row.boxes} caja{row.boxes > 1 ? 's' : ''} × {unitsPerBox})
+              </span>
+            </div>
+          )
+        }
+        return <Badge variant="success" size="sm">{row.quantity} unidades</Badge>
+      }
     },
     {
       key: 'actions',
@@ -517,7 +500,7 @@ export default function StockEntry() {
         <div className="entry-content">
           {/* Selección de Producto */}
           <div className="product-selection-section">
-            <h3>1. Seleccionar Producto</h3>
+            <h3><span className="step-number">1</span> Seleccionar Producto</h3>
             {!selectedProduct ? (
               <div>
                 <Input
@@ -585,7 +568,8 @@ export default function StockEntry() {
                     setSelectedProduct(null)
                     setScannedRfid(null)
                     setShowBatchForm(false)
-                    setBatchData({ lot_number: '', expiry_date: '', quantity: 1 })
+                    setBatchData({ lot_number: '', expiry_date: '', quantity: 1, boxes: 1 })
+                    setEntryMode('boxes')
                     setErrors({})
                     setPendingEntries([])
                     setMultipleMode(false)
@@ -601,7 +585,7 @@ export default function StockEntry() {
           {/* Escaneo IDP */}
           {selectedProduct && (
             <div className="rfid-scan-section">
-              <h3>2. Escanear IDP</h3>
+              <h3><span className="step-number">2</span> Escanear IDP</h3>
               <div className="scan-controls">
                 <Button
                   variant={listening ? 'danger' : 'primary'}
@@ -648,7 +632,7 @@ export default function StockEntry() {
           {/* Formulario de Lote */}
           {selectedProduct && scannedRfid && (
             <div className="batch-form-section">
-              <h3>3. Ingresar Datos del Lote</h3>
+              <h3><span className="step-number">3</span> Ingresar Datos del Lote</h3>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                   <input
@@ -691,31 +675,92 @@ export default function StockEntry() {
                   }}
                   error={errors.expiry_date}
                 />
-                <Input
-                  label={`Cantidad${selectedProduct?.units_per_package > 1 ? ` (unidades individuales - ${selectedProduct.units_per_package} por caja)` : ' (unidades)'}`}
-                  type="number"
-                  min="1"
-                  value={batchData.quantity}
-                  onChange={(e) => {
-                    setBatchData({ ...batchData, quantity: parseInt(e.target.value) || 1 })
-                    setErrors({ ...errors, quantity: '' })
-                  }}
-                  error={errors.quantity}
-                  placeholder={selectedProduct?.units_per_package > 1 ? `Ej: ${selectedProduct.units_per_package} (ampollas/unidades)` : 'Ej: 1'}
-                />
-                {selectedProduct?.units_per_package > 1 && batchData.quantity > 0 && (
-                  <div style={{ 
-                    marginTop: '-0.5rem', 
-                    marginBottom: '1rem', 
-                    fontSize: '0.875rem', 
-                    color: 'var(--color-text-secondary)',
-                    padding: '0.5rem',
-                    background: 'var(--color-info-light)',
-                    borderRadius: '0.25rem'
-                  }}>
-                    📦 Equivale a: <strong>{Math.ceil(batchData.quantity / selectedProduct.units_per_package)}</strong> caja(s) 
-                    ({batchData.quantity} unidades individuales)
+                
+                {/* Selector de modo de entrada para productos con múltiples unidades por caja */}
+                {selectedProduct?.units_per_package > 1 && (
+                  <div className="entry-mode-selector">
+                    <label>Modo de Ingreso:</label>
+                    <div className="entry-mode-buttons">
+                      <button
+                        type="button"
+                        className={`entry-mode-btn ${entryMode === 'boxes' ? 'active' : ''}`}
+                        onClick={() => {
+                          setEntryMode('boxes')
+                          const newQuantity = (batchData.boxes || 1) * selectedProduct.units_per_package
+                          setBatchData({ ...batchData, quantity: newQuantity })
+                        }}
+                      >
+                        <span className="mode-icon">📦</span> Por Cajas
+                      </button>
+                      <button
+                        type="button"
+                        className={`entry-mode-btn ${entryMode === 'units' ? 'active' : ''}`}
+                        onClick={() => setEntryMode('units')}
+                      >
+                        <span className="mode-icon">💊</span> Por Unidades
+                      </button>
+                    </div>
                   </div>
+                )}
+
+                {/* Entrada por CAJAS */}
+                {selectedProduct?.units_per_package > 1 && entryMode === 'boxes' && (
+                  <>
+                    <Input
+                      label={`Cantidad de Cajas (${selectedProduct.units_per_package} unidades por caja)`}
+                      type="number"
+                      min="1"
+                      value={batchData.boxes}
+                      onChange={(e) => {
+                        const boxes = parseInt(e.target.value) || 1
+                        const totalUnits = boxes * selectedProduct.units_per_package
+                        setBatchData({ ...batchData, boxes, quantity: totalUnits })
+                        setErrors({ ...errors, quantity: '' })
+                      }}
+                      error={errors.quantity}
+                      placeholder="Ej: 5"
+                    />
+                    <div className="stock-calculator">
+                      <div className="calc-header">
+                        <span>🧮</span> Cálculo Automático:
+                      </div>
+                      <div className="calc-formula">
+                        {batchData.boxes || 1} caja{(batchData.boxes || 1) > 1 ? 's' : ''} × {selectedProduct.units_per_package} unidades
+                      </div>
+                      <div className="calc-result">
+                        = <span className="total-number">{calculateTotalQuantity()}</span> unidades totales
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Entrada por UNIDADES (o para productos sin múltiples unidades) */}
+                {(selectedProduct?.units_per_package <= 1 || entryMode === 'units') && (
+                  <>
+                    <Input
+                      label={`Cantidad (unidades individuales)`}
+                      type="number"
+                      min="1"
+                      value={batchData.quantity}
+                      onChange={(e) => {
+                        const qty = parseInt(e.target.value) || 1
+                        const boxes = selectedProduct?.units_per_package > 1 
+                          ? Math.ceil(qty / selectedProduct.units_per_package) 
+                          : 1
+                        setBatchData({ ...batchData, quantity: qty, boxes })
+                        setErrors({ ...errors, quantity: '' })
+                      }}
+                      error={errors.quantity}
+                      placeholder="Ej: 100"
+                    />
+                    {selectedProduct?.units_per_package > 1 && batchData.quantity > 0 && (
+                      <div className="equivalence-info">
+                        <span className="eq-icon">📦</span>
+                        Equivale a: <strong>{Math.ceil(batchData.quantity / selectedProduct.units_per_package)}</strong> caja(s) 
+                        de {selectedProduct.units_per_package} unidades cada una
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -778,16 +823,37 @@ export default function StockEntry() {
 
           {/* Mensaje de éxito */}
           {lastProcessed && (
-            <div className="success-message">
-              <HiCheckCircle />
+            <div className={lastProcessed.action === 'stock_added' ? 'stock-added-message' : 'success-message'}>
+              {lastProcessed.action === 'stock_added' ? <HiRefresh size={32} /> : <HiCheckCircle size={32} />}
               <div>
-                <strong>Entrada registrada</strong>
+                <strong>
+                  {lastProcessed.action === 'stock_added' 
+                    ? '📦 Stock Agregado al Lote Existente' 
+                    : '✅ Nuevo Lote Creado'}
+                </strong>
                 <p>Medicamento: {lastProcessed.product}</p>
-                <p>Cantidad ingresada: {lastProcessed.quantity} unidades individuales</p>
-                {selectedProduct?.units_per_package > 1 && (
-                  <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginTop: '0.25rem' }}>
-                    Equivale a: {Math.ceil(lastProcessed.quantity / selectedProduct.units_per_package)} caja(s)
-                  </p>
+                
+                {lastProcessed.action === 'stock_added' ? (
+                  <>
+                    <div className="added-summary">
+                      <p style={{ margin: 0 }}>
+                        <strong>+{lastProcessed.added_quantity}</strong> unidades agregadas
+                      </p>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.9rem' }}>
+                        Stock anterior: {lastProcessed.previous_quantity} → 
+                        <strong> Nuevo stock: {lastProcessed.new_quantity}</strong> unidades
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p>Cantidad ingresada: {lastProcessed.quantity} unidades</p>
+                    {selectedProduct?.units_per_package > 1 && (
+                      <p style={{ fontSize: '0.875rem', opacity: '0.9', marginTop: '0.25rem' }}>
+                        ({Math.ceil(lastProcessed.quantity / selectedProduct.units_per_package)} caja{Math.ceil(lastProcessed.quantity / selectedProduct.units_per_package) > 1 ? 's' : ''})
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

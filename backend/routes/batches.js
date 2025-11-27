@@ -157,39 +157,7 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
-    // Validar formato de RFID si se proporciona
-    if (rfid_uid) {
-      if (!businessRules.isValidRfidFormat(rfid_uid)) {
-        return res.status(400).json({
-          success: false,
-          error: businessRules.ERROR_MESSAGES.RFID_INVALID_FORMAT
-        });
-      }
-
-      const normalizedRfid = rfid_uid.toUpperCase().trim();
-      const hasActiveStock = await db.checkRfidHasActiveStock(normalizedRfid);
-      
-      if (hasActiveStock) {
-        // Obtener información del lote con stock activo para el mensaje de error
-        const batchesWithStock = await db.getBatchesByRfidUid(normalizedRfid);
-        const activeBatch = batchesWithStock.find(b => b.quantity > 0);
-        
-        if (activeBatch) {
-          return res.status(400).json({
-            success: false,
-            error: `Este código RFID ya tiene stock activo en el sistema (${activeBatch.quantity} unidades del producto "${activeBatch.product_name || 'N/A'}"). Solo se puede ingresar nuevamente cuando el stock llegue a 0.`,
-            batch_info: {
-              product_name: activeBatch.product_name,
-              quantity: activeBatch.quantity,
-              lot_number: activeBatch.lot_number,
-              expiry_date: activeBatch.expiry_date
-            }
-          });
-        }
-      }
-    }
-
-    // Validar quantity antes de crear batch
+    // Validar quantity antes de continuar
     const quantityValue = parseInt(quantity, 10);
     if (!quantity || isNaN(quantityValue) || quantityValue < businessRules.MIN_QUANTITY) {
       return res.status(400).json({
@@ -208,6 +176,83 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
+    // Validar formato de RFID si se proporciona
+    if (rfid_uid) {
+      if (!businessRules.isValidRfidFormat(rfid_uid)) {
+        return res.status(400).json({
+          success: false,
+          error: businessRules.ERROR_MESSAGES.RFID_INVALID_FORMAT
+        });
+      }
+
+      const normalizedRfid = rfid_uid.toUpperCase().trim();
+      const hasActiveStock = await db.checkRfidHasActiveStock(normalizedRfid);
+      
+      if (hasActiveStock) {
+        // Obtener información del lote con stock activo
+        const batchesWithStock = await db.getBatchesByRfidUid(normalizedRfid);
+        const activeBatch = batchesWithStock.find(b => b.quantity > 0);
+        
+        if (activeBatch) {
+          // ═══════════════════════════════════════════════════════════════════════════
+          // NUEVA LÓGICA: Si es el MISMO producto, SUMAR al stock existente
+          // ═══════════════════════════════════════════════════════════════════════════
+          if (activeBatch.product_id === parseInt(product_id)) {
+            // Es el mismo producto - sumar cantidad al lote existente
+            const previousQuantity = activeBatch.quantity;
+            const newQuantity = previousQuantity + quantityValue;
+            
+            // Actualizar la cantidad del lote existente
+            await db.pool.execute(
+              'UPDATE product_batches SET quantity = ? WHERE id = ?',
+              [newQuantity, activeBatch.id]
+            );
+            
+            // Registrar en historial
+            await db.pool.execute(
+              `INSERT INTO stock_history 
+               (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
+               VALUES (?, ?, NULL, ?, ?, 'add', CURDATE(), ?)`,
+              [
+                activeBatch.product_id, 
+                activeBatch.id, 
+                previousQuantity, 
+                newQuantity, 
+                `Ingreso adicional de ${quantityValue} unidades al lote existente`
+              ]
+            );
+            
+            // Obtener lote actualizado
+            const updatedBatch = await db.getBatchById(activeBatch.id);
+            
+            return res.status(200).json({
+              success: true,
+              data: updatedBatch,
+              message: `Stock actualizado: Se agregaron ${quantityValue} unidades al lote existente. Nuevo stock total: ${newQuantity} unidades.`,
+              action: 'stock_added',
+              previous_quantity: previousQuantity,
+              added_quantity: quantityValue,
+              new_quantity: newQuantity
+            });
+          } else {
+            // Es un producto DIFERENTE - ERROR: No se puede usar el mismo IDP para otro producto
+            return res.status(400).json({
+              success: false,
+              error: `⚠️ IDP DUPLICADO: Este código RFID ya está registrado con el producto "${activeBatch.product_name || 'N/A'}" (${activeBatch.quantity} unidades). No puedes usar el mismo IDP para un producto diferente.`,
+              batch_info: {
+                product_id: activeBatch.product_id,
+                product_name: activeBatch.product_name,
+                quantity: activeBatch.quantity,
+                lot_number: activeBatch.lot_number,
+                expiry_date: activeBatch.expiry_date
+              }
+            });
+          }
+        }
+      }
+    }
+
+    // Crear nuevo lote (si no hay stock activo con este RFID)
     const batch = await db.createBatch({
       product_id: parseInt(product_id),
       lot_number: lot_number.trim(),
@@ -220,7 +265,8 @@ router.post('/', authenticateToken, async (req, res) => {
     res.status(201).json({
       success: true,
       data: batch,
-      message: 'Lote creado correctamente'
+      message: `Lote creado correctamente con ${quantityValue} unidades`,
+      action: 'batch_created'
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
