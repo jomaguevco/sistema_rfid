@@ -117,6 +117,68 @@ function calculateWeightedMovingAverage(data, period) {
 }
 
 /**
+ * Calcular Promedio Móvil Exponencial (EMA) con detalles
+ * Fórmula: EMA_today = (Valor_today × α) + (EMA_yesterday × (1 - α))
+ * Donde α (alpha) es el factor de suavizado (típicamente 0.1-0.3)
+ * EMA da más peso a datos recientes de forma exponencial
+ */
+function calculateExponentialMovingAverage(data, period, alpha = 0.2) {
+  if (data.length < period) {
+    return { value: null, formula: null, steps: [] };
+  }
+
+  // Usar los primeros 'period' valores para calcular EMA inicial
+  const initialData = data.slice(0, period);
+  const initialEMA = initialData.reduce((sum, val) => sum + val, 0) / period;
+  
+  // Calcular EMA para el resto de los datos
+  let currentEMA = initialEMA;
+  const emaValues = [initialEMA];
+  const calculations = [];
+  
+  for (let i = period; i < data.length; i++) {
+    const previousEMA = currentEMA;
+    currentEMA = (alpha * data[i]) + ((1 - alpha) * previousEMA);
+    emaValues.push(currentEMA);
+    
+    if (i === data.length - 1) {
+      // Guardar el cálculo del último valor
+      calculations.push({
+        step: i - period + 1,
+        description: `EMA día ${i + 1}`,
+        operation: `(${alpha} × ${data[i].toFixed(2)}) + (${(1 - alpha).toFixed(2)} × ${previousEMA.toFixed(4)})`,
+        result: currentEMA.toFixed(4)
+      });
+    }
+  }
+  
+  const finalEMA = emaValues[emaValues.length - 1];
+
+  return {
+    value: finalEMA,
+    formula: `EMA = (${alpha} × Valor_actual) + (${(1 - alpha).toFixed(2)} × EMA_anterior)`,
+    alpha: alpha,
+    initial_ema: Number(initialEMA.toFixed(4)),
+    final_ema: Number(finalEMA.toFixed(4)),
+    ema_values: emaValues.map(v => Number(v.toFixed(4))),
+    steps: [
+      {
+        step: 1,
+        description: `Calcular EMA inicial usando primeros ${period} valores`,
+        operation: `Promedio simple de [${initialData.map(v => v.toFixed(2)).join(', ')}]`,
+        result: initialEMA.toFixed(4)
+      },
+      {
+        step: 2,
+        description: 'Aplicar fórmula EMA recursivamente a datos restantes',
+        detail: `α = ${alpha} (${(alpha * 100).toFixed(0)}% peso a valor actual, ${((1 - alpha) * 100).toFixed(0)}% a EMA anterior)`,
+        calculations: calculations
+      }
+    ]
+  };
+}
+
+/**
  * Calcular regresión lineal simple con detalles
  * y = mx + b donde m = pendiente, b = intercepto
  */
@@ -328,81 +390,74 @@ function getSeasonalityFactor(period, productId) {
 }
 
 /**
- * Escenarios externos predefinidos
+ * Obtener ajuste externo basado en datos históricos reales
+ * Si no hay suficiente historial, no se aplican ajustes externos
  */
-const EXTERNAL_SCENARIOS = [
-  {
-    id: 0,
-    note: 'Campaña de vacunación regional',
-    demandMultiplier: 1.08,
-    extraDemand: 25,
-    volatility: 'medium',
-    description: 'Incremento esperado por campañas de salud pública'
-  },
-  {
-    id: 1,
-    note: 'Entrega extraordinaria confirmada',
-    demandMultiplier: 0.95,
-    extraDemand: -15,
-    volatility: 'low',
-    description: 'Reducción temporal por reabastecimiento especial'
-  },
-  {
-    id: 2,
-    note: 'Alerta epidemiológica en curso',
-    demandMultiplier: 1.15,
-    extraDemand: 40,
-    volatility: 'high',
-    description: 'Alta demanda por situación sanitaria especial'
-  },
-  {
-    id: 3,
-    note: 'Estacionalidad baja registrada',
-    demandMultiplier: 0.9,
-    extraDemand: -5,
-    volatility: 'medium',
-    description: 'Período de menor consumo histórico'
-  },
-  {
-    id: 4,
-    note: 'Incremento en derivaciones interhospitalarias',
-    demandMultiplier: 1.12,
-    extraDemand: 30,
-    volatility: 'medium',
-    description: 'Mayor afluencia de pacientes derivados'
+function getExternalScenario(historicalData, period) {
+  // Sin datos históricos suficientes, no aplicar ajustes externos
+  if (!historicalData || historicalData.length < 30) {
+    return {
+      note: 'Sin ajustes externos',
+      demandMultiplier: 1.0,
+      extraDemand: 0,
+      volatility: 'low',
+      description: 'No hay suficientes datos históricos para determinar factores externos',
+      calculation: {
+        base_extra_demand: 0,
+        period_scaling: 1,
+        final_extra_demand: 0,
+        reason: 'Se requieren al menos 30 días de historial para ajustes externos'
+      }
+    };
   }
-];
 
-function getExternalScenario(productId, period) {
-  const scenario = EXTERNAL_SCENARIOS[productId % EXTERNAL_SCENARIOS.length];
-  const scaling = period === 'quarter' ? 1.5 : period === 'year' ? 2 : 1;
+  // Calcular tendencia real basada en los últimos 30 días vs los 30 días anteriores
+  const recent30 = historicalData.slice(-30);
+  const previous30 = historicalData.slice(-60, -30);
+  
+  const recentAvg = recent30.reduce((a, b) => a + b, 0) / recent30.length;
+  const previousAvg = previous30.length > 0 
+    ? previous30.reduce((a, b) => a + b, 0) / previous30.length 
+    : recentAvg;
+  
+  // Calcular cambio porcentual real
+  const changePercent = previousAvg > 0 ? ((recentAvg - previousAvg) / previousAvg) * 100 : 0;
+  
+  // Aplicar ajuste moderado basado en tendencia real (máximo ±10%)
+  const demandMultiplier = Math.max(0.9, Math.min(1.1, 1 + (changePercent / 1000)));
+  const extraDemand = Math.round(changePercent * 0.5); // Ajuste suave
   
   return {
-    ...scenario,
-    extraDemand: Math.round(scenario.extraDemand * scaling),
-    scaling_factor: scaling,
+    note: changePercent > 0 ? 'Tendencia al alza detectada' : changePercent < 0 ? 'Tendencia a la baja detectada' : 'Tendencia estable',
+    demandMultiplier: Number(demandMultiplier.toFixed(4)),
+    extraDemand: extraDemand,
+    volatility: Math.abs(changePercent) > 20 ? 'high' : Math.abs(changePercent) > 10 ? 'medium' : 'low',
+    description: `Basado en análisis de tendencia histórica real: ${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}% cambio en los últimos 30 días`,
     calculation: {
-      base_extra_demand: scenario.extraDemand,
-      period_scaling: scaling,
-      final_extra_demand: Math.round(scenario.extraDemand * scaling)
+      recent_30_day_avg: Number(recentAvg.toFixed(2)),
+      previous_30_day_avg: Number(previousAvg.toFixed(2)),
+      change_percent: Number(changePercent.toFixed(2)),
+      demand_multiplier: Number(demandMultiplier.toFixed(4)),
+      extra_demand: extraDemand,
+      reason: 'Cálculo basado en comparación de períodos históricos reales'
     }
   };
 }
 
 /**
- * Aplicar ajustes con cálculos detallados
+ * Aplicar ajustes con cálculos detallados basados en datos reales
  */
-function applyAdjustments(baseQuantity, productId, period) {
+function applyAdjustments(baseQuantity, productId, period, historicalData) {
   const seasonality = getSeasonalityFactor(period, productId);
-  const externalScenario = getExternalScenario(productId, period);
+  const externalScenario = getExternalScenario(historicalData, period);
 
-  // Paso 1: Aplicar estacionalidad
+  // Paso 1: Aplicar estacionalidad (ligera, basada en mes actual)
   const afterSeasonality = baseQuantity * seasonality.value;
   
-  // Paso 2: Aplicar multiplicador externo
+  // Paso 2: Aplicar ajuste basado en tendencia real (si hay datos)
   const afterMultiplier = afterSeasonality * externalScenario.demandMultiplier;
   
-  // Paso 3: Agregar demanda extra
+  // Paso 3: Agregar demanda extra basada en tendencia real
   let finalPrediction = afterMultiplier + externalScenario.extraDemand;
   if (finalPrediction < 0) finalPrediction = 0;
 
@@ -413,24 +468,24 @@ function applyAdjustments(baseQuantity, productId, period) {
     calculation_steps: [
       {
         step: 1,
-        name: 'Aplicar factor de estacionalidad',
+        name: 'Aplicar factor de estacionalidad mensual',
         operation: `${baseQuantity.toFixed(2)} × ${seasonality.value}`,
         result: afterSeasonality.toFixed(2),
         explanation: seasonality.calculation.interpretation
       },
       {
         step: 2,
-        name: 'Aplicar multiplicador del escenario externo',
+        name: 'Aplicar ajuste por tendencia histórica real',
         operation: `${afterSeasonality.toFixed(2)} × ${externalScenario.demandMultiplier}`,
         result: afterMultiplier.toFixed(2),
-        explanation: `Escenario: ${externalScenario.note}`
+        explanation: externalScenario.description
       },
       {
         step: 3,
-        name: 'Agregar demanda adicional del escenario',
+        name: 'Agregar demanda adicional basada en tendencia',
         operation: `${afterMultiplier.toFixed(2)} + ${externalScenario.extraDemand}`,
         result: Math.max(0, finalPrediction).toFixed(2),
-        explanation: externalScenario.description
+        explanation: `Ajuste calculado a partir de datos históricos reales`
       }
     ],
     seasonality_details: seasonality.calculation,
@@ -461,36 +516,79 @@ async function getHistoricalConsumption(productId, areaId = null, days = 90) {
     
     history.forEach(record => {
       if (record.action === 'remove') {
-        const date = record.consumption_date || record.created_at.toISOString().split('T')[0];
-        const consumed = record.previous_stock - record.new_stock;
-        
-        if (!dailyConsumption[date]) {
-          dailyConsumption[date] = 0;
-          dailyDetails[date] = [];
+        // Usar consumption_date si está disponible, sino created_at
+        let date;
+        if (record.consumption_date) {
+          // Asegurar que es una fecha válida
+          const dateObj = new Date(record.consumption_date);
+          date = isNaN(dateObj.getTime()) 
+            ? new Date(record.created_at).toISOString().split('T')[0]
+            : dateObj.toISOString().split('T')[0];
+        } else if (record.created_at) {
+          date = new Date(record.created_at).toISOString().split('T')[0];
+        } else {
+          // Si no hay fecha, usar fecha actual (no debería pasar)
+          date = new Date().toISOString().split('T')[0];
         }
-        dailyConsumption[date] += consumed;
-        dailyDetails[date].push({
-          quantity: consumed,
-          previous_stock: record.previous_stock,
-          new_stock: record.new_stock,
-          notes: record.notes
-        });
+        
+        // Calcular consumo: diferencia entre stock anterior y nuevo
+        const consumed = Math.max(0, (record.previous_stock || 0) - (record.new_stock || 0));
+        
+        // Solo agregar si hay consumo real
+        if (consumed > 0) {
+          if (!dailyConsumption[date]) {
+            dailyConsumption[date] = 0;
+            dailyDetails[date] = [];
+          }
+          dailyConsumption[date] += consumed;
+          dailyDetails[date].push({
+            quantity: consumed,
+            previous_stock: record.previous_stock || 0,
+            new_stock: record.new_stock || 0,
+            notes: record.notes || '',
+            batch_id: record.batch_id,
+            area_name: record.area_name
+          });
+        }
       }
     });
 
-    // Convertir a arrays ordenados
-    const dates = Object.keys(dailyConsumption).sort();
-    const consumptionArray = dates.map(date => dailyConsumption[date]);
+    // Convertir a arrays ordenados por fecha (más antiguo primero)
+    const datesWithData = Object.keys(dailyConsumption).sort((a, b) => {
+      return new Date(a) - new Date(b);
+    });
+    
+    // Crear arrays de valores y fechas completas (rellenando días sin datos)
+    let consumptionArray = [];
+    let allDates = [];
+    
+    if (datesWithData.length > 0) {
+      // Rellenar desde startDate hasta endDate con todos los días
+      const currentDate = new Date(startDate);
+      const end = new Date(endDate);
+      
+      while (currentDate <= end) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        allDates.push(dateStr);
+        consumptionArray.push(dailyConsumption[dateStr] || 0);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    } else {
+      // Si no hay fechas con datos, solo usar las fechas que existen
+      allDates = datesWithData;
+      consumptionArray = datesWithData.map(date => dailyConsumption[date] || 0);
+    }
 
     return {
       values: consumptionArray,
-      dates: dates,
+      dates: allDates,
       daily_details: dailyDetails,
       period: {
         start: startDate.toISOString().split('T')[0],
         end: endDate.toISOString().split('T')[0],
         days_requested: days,
-        days_with_data: dates.length
+        days_with_data: datesWithData.length,
+        days_total: allDates.length
       }
     };
   } catch (error) {
@@ -587,16 +685,34 @@ async function predictConsumption(productId, period, areaId = null) {
       days: daysInPeriod
     });
 
-    // Paso 3: Calcular predicción base
+    // Paso 3: Calcular predicción base usando el mejor algoritmo disponible
     let predictedQuantity = 0;
     let algorithmUsed = 'moving_average';
     let algorithmDetails = {};
 
-    // Promedio simple como respaldo
-    const simpleAvg = calculateMovingAverage(historicalData, Math.min(historicalData.length, 30));
-
-    if (historicalData.length >= 14) {
-      // Usar promedio ponderado
+    // Determinar qué algoritmo usar basado en cantidad de datos
+    if (historicalData.length >= 30) {
+      // Con 30+ días: Usar EMA (más preciso para datos con tendencia)
+      const ema = calculateExponentialMovingAverage(historicalData, Math.min(historicalData.length, 30), 0.2);
+      
+      if (ema.value !== null) {
+        predictedQuantity = ema.value * daysInPeriod;
+        algorithmUsed = 'exponential_moving_average';
+        algorithmDetails = {
+          method: 'Promedio Móvil Exponencial (EMA)',
+          description: 'Método avanzado que da peso exponencial a datos recientes, ideal para capturar tendencias',
+          formula: ema.formula,
+          alpha: ema.alpha,
+          daily_average: Number(ema.value.toFixed(4)),
+          calculation_steps: ema.steps,
+          projection: {
+            formula: `${ema.value.toFixed(4)} × ${daysInPeriod} días`,
+            result: predictedQuantity.toFixed(2)
+          }
+        };
+      }
+    } else if (historicalData.length >= 14) {
+      // Con 14-29 días: Usar promedio ponderado
       const weightedAvg = calculateWeightedMovingAverage(historicalData, Math.min(historicalData.length, 14));
       
       if (weightedAvg.value !== null) {
@@ -615,9 +731,12 @@ async function predictConsumption(productId, period, areaId = null) {
         };
       }
     } else {
-      // Usar promedio simple
+      // Con 7-13 días: Usar promedio simple
+      const simpleAvg = calculateMovingAverage(historicalData, Math.min(historicalData.length, 7));
+      
       if (simpleAvg.value !== null) {
         predictedQuantity = simpleAvg.value * daysInPeriod;
+        algorithmUsed = 'moving_average';
         algorithmDetails = {
           method: 'Promedio Móvil Simple',
           description: 'Promedio aritmético de los últimos días disponibles',
@@ -672,9 +791,9 @@ async function predictConsumption(productId, period, areaId = null) {
       }
     }
 
-    // Paso 5: Aplicar ajustes
+    // Paso 5: Aplicar ajustes basados en datos reales
     const basePrediction = Math.max(predictedQuantity, 0);
-    const adjustments = applyAdjustments(basePrediction, productId, period);
+    const adjustments = applyAdjustments(basePrediction, productId, period, historicalData);
 
     result.calculation_methodology.push({
       step: 5,
@@ -744,11 +863,13 @@ async function predictConsumption(productId, period, areaId = null) {
         daily_average_consumption: stats.mean,
         total_predicted: adjustments.adjusted_prediction,
         confidence: `${finalConfidence}%`,
-        methodology: algorithmUsed === 'weighted_moving_average' 
-          ? 'Promedio Móvil Ponderado' 
-          : algorithmUsed === 'linear_regression_combined'
-            ? 'Promedio Ponderado + Regresión Lineal'
-            : 'Promedio Móvil Simple'
+        methodology: algorithmUsed === 'exponential_moving_average'
+          ? 'Promedio Móvil Exponencial (EMA)'
+          : algorithmUsed === 'weighted_moving_average' 
+            ? 'Promedio Móvil Ponderado' 
+            : algorithmUsed === 'linear_regression_combined'
+              ? 'Promedio Ponderado + Regresión Lineal'
+              : 'Promedio Móvil Simple'
       }
     };
 
@@ -860,6 +981,7 @@ module.exports = {
   calculateStatistics,
   calculateMovingAverage,
   calculateWeightedMovingAverage,
+  calculateExponentialMovingAverage,
   calculateLinearRegression,
   calculateConfidenceLevel
 };

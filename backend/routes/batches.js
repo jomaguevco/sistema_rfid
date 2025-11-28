@@ -15,7 +15,9 @@ router.get('/', authenticateToken, async (req, res) => {
     
     if (rfid_uid) {
       // Buscar TODOS los lotes con el mismo RFID
-      const batches = await db.getBatchesByRfidUid(rfid_uid.trim());
+      // Normalizar el RFID antes de buscar para asegurar coincidencia
+      const normalizedRfid = rfid_uid.trim().toUpperCase();
+      const batches = await db.getBatchesByRfidUid(normalizedRfid);
       return res.json({
         success: true,
         data: batches || []

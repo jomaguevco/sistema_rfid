@@ -11,7 +11,7 @@ import './PredictionDetailModal.css'
 export default function PredictionDetailModal({ productId, isOpen, onClose }) {
   const [selectedPeriod, setSelectedPeriod] = useState('month')
   const [expandedSections, setExpandedSections] = useState({
-    historical: false,
+    historical: true,  // Expandido por defecto para mostrar datos
     methodology: true,
     statistics: false,
     adjustments: true,
@@ -63,6 +63,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
     const names = {
       'moving_average': 'Promedio Móvil Simple',
       'weighted_moving_average': 'Promedio Móvil Ponderado',
+      'exponential_moving_average': 'Promedio Móvil Exponencial (EMA)',
       'linear_regression_combined': 'Promedio Ponderado + Regresión Lineal',
       'insufficient_data': 'Sin datos suficientes'
     }
@@ -86,9 +87,14 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
     </div>
   )
 
-  const results = detailedPrediction?.final_results
+  const results = detailedPrediction?.final_results || {}
   const methodology = detailedPrediction?.calculation_methodology || []
   const historicalData = detailedPrediction?.historical_data
+  
+  // Verificar si hay datos para mostrar
+  const hasData = !!(detailedPrediction && (results.adjusted_prediction !== undefined || results.predicted_quantity !== undefined))
+  const hasHistoricalData = !!(historicalData && historicalData.values && historicalData.values.length > 0)
+  const hasMethodology = methodology.length > 0
 
   return (
     <Modal
@@ -99,6 +105,10 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
     >
       {loadingDetail ? (
         <Loading text="Calculando predicción detallada..." />
+      ) : !hasData ? (
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-gray-500)' }}>
+          <p>No se pudo calcular la predicción. Verifica que haya datos históricos de consumo.</p>
+        </div>
       ) : (
         <div className="prediction-detail-v2">
           {/* Selector de período */}
@@ -157,7 +167,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
           )}
 
           {/* Datos Históricos */}
-          {historicalData && renderCollapsibleSection('historical', 'Datos Históricos Utilizados', <HiDatabase />, (
+          {historicalData && hasHistoricalData && renderCollapsibleSection('historical', 'Datos Históricos Utilizados', <HiDatabase />, (
             <div className="historical-section">
               <div className="historical-summary">
                 <div className="stat-item">
@@ -216,7 +226,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
           ))}
 
           {/* Metodología de Cálculo */}
-          {methodology.length > 0 && renderCollapsibleSection('methodology', 'Metodología de Cálculo Paso a Paso', <HiCalculator />, (
+          {hasMethodology && renderCollapsibleSection('methodology', 'Metodología de Cálculo Paso a Paso', <HiCalculator />, (
             <div className="methodology-section">
               {methodology.map((step, index) => (
                 <div key={index} className={`method-step ${step.status?.toLowerCase()}`}>

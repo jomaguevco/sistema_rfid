@@ -711,6 +711,16 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
       });
     }
 
+    // ✅ VALIDACIÓN CRÍTICA: Verificar que el batch pertenezca al producto del item
+    if (batch.product_id !== item.product_id) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: 'El lote especificado no corresponde al producto de la prescripción',
+        message: `El lote pertenece al producto ID ${batch.product_id}, pero el item requiere el producto ID ${item.product_id}`
+      });
+    }
+
     // Calcular cantidad restante por despachar
     const quantityAlreadyDispensed = item.quantity_dispensed || 0;
     const quantityRemaining = item.quantity_required - quantityAlreadyDispensed;
@@ -772,8 +782,14 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const updatedPrescription = await db.getPrescriptionById(parseInt(id));
     const updatedItems = await db.getPrescriptionItems(parseInt(id));
 
-    // Calcular stock restante del lote
-    const remainingStock = batch.quantity - actualQuantityToDispense;
+    // ✅ Obtener el batch actualizado para mostrar el stock correcto
+    // El stock puede haber cambiado si se descontó de múltiples lotes
+    const updatedBatchInfo = await db.getBatchById(batchId);
+    const remainingStock = updatedBatchInfo ? updatedBatchInfo.quantity : 0;
+    
+    // Calcular stock total del producto para mostrar en la respuesta
+    const allProductBatches = await db.getProductBatches(batch.product_id);
+    const totalProductStock = allProductBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
     
     // Filtrar información de stock según rol
     const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
@@ -821,7 +837,9 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     // Solo incluir remaining_stock si es admin
     if (canSeeStock) {
       responseData.message += ` Stock restante del lote: ${remainingStock} unidades individuales.`;
+      responseData.message += ` Stock total del producto: ${totalProductStock} unidades.`;
       responseData.remaining_stock = remainingStock;
+      responseData.total_product_stock = totalProductStock;
     }
     
     res.json(responseData);

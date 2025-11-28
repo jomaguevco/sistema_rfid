@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const predictionEngine = require('../utils/predictionEngine');
-const { applyAdjustments } = predictionEngine;
 const db = require('../database_medical');
 
-function enhancePredictionRow(row) {
-  const adjustment = applyAdjustments(row.predicted_quantity || 0, row.product_id, row.prediction_period);
+async function enhancePredictionRow(row) {
+  // Obtener datos históricos reales para ajustes
+  const historical = await predictionEngine.getHistoricalConsumption(row.product_id, row.area_id || null, 90);
+  const historicalData = historical.values || [];
+  
+  // Usar datos históricos reales para ajustes (vacío si no hay suficiente historial)
+  const adjustment = predictionEngine.applyAdjustments(row.predicted_quantity || 0, row.product_id, row.prediction_period, historicalData);
   const currentStock = row.current_stock !== undefined ? row.current_stock : 0;
   const adjustedPrediction = adjustment.adjusted_prediction;
   const deficit = Math.round(adjustedPrediction - currentStock);
@@ -38,13 +42,13 @@ router.get('/product/:productId', async (req, res) => {
       [productId]
     );
     const currentStock = productRows[0]?.current_stock || 0;
-    const enhanced = predictions.map(prediction =>
+    const enhanced = await Promise.all(predictions.map(prediction =>
       enhancePredictionRow({
         ...prediction,
         product_id: productId,
         current_stock: currentStock
       })
-    );
+    ));
     
     res.json({
       success: true,
