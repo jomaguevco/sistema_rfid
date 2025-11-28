@@ -103,7 +103,7 @@ export default function DispenseModal({ prescription, isOpen, onClose, onSuccess
   const addToDispenseQueue = (item, batch) => {
     const remaining = item.quantity_required - (item.quantity_dispensed || 0)
     const maxQuantity = Math.min(remaining, batch.quantity)
-    const initialQuantity = Math.min(1, maxQuantity)
+    const initialQuantity = maxQuantity
     
     const queueItem = {
       id: `${batch.rfid_uid}-${Date.now()}`,
