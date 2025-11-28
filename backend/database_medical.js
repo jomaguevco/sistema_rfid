@@ -228,13 +228,19 @@ async function getAllProductsPaginated(filters = {}) {
     // El RFID se normaliza y se muestra como código de fachada para identificar el producto
     // Diferentes lotes = diferentes filas, pero con el mismo código RFID de fachada (normalizado)
     // Usamos COALESCE para obtener el RFID principal del producto o el primer RFID de los lotes
+    // ═══════════════════════════════════════════════════════════════════════════
+    // QUERY CORREGIDA: Evitar duplicación por múltiples tags RFID
+    // Usamos DISTINCT pb.id para asegurar que cada batch se cuente solo una vez
+    // ═══════════════════════════════════════════════════════════════════════════
     let baseQuery = `
-      SELECT 
+      SELECT DISTINCT
         p.id as product_id,
+        pb.id as batch_id,
         pb.lot_number,
         pb.expiry_date,
         COALESCE(
           p.rfid_uid,
+          pb.rfid_uid,
           (SELECT pb2.rfid_uid FROM product_batches pb2 
            WHERE pb2.product_id = p.id AND pb2.rfid_uid IS NOT NULL 
            LIMIT 1)
@@ -250,11 +256,10 @@ async function getAllProductsPaginated(filters = {}) {
         p.min_stock,
         p.requires_refrigeration,
         p.units_per_package,
-        COALESCE(SUM(pb.quantity), 0) as total_stock
+        pb.quantity as batch_quantity
       FROM products p
       LEFT JOIN product_categories pc ON p.category_id = pc.id
       INNER JOIN product_batches pb ON pb.product_id = p.id
-      LEFT JOIN batch_rfid_tags brt ON pb.id = brt.batch_id
       WHERE pb.quantity > 0
     `;
     
@@ -271,7 +276,7 @@ async function getAllProductsPaginated(filters = {}) {
     if (filters.search) {
       baseQuery += ` AND (
         COALESCE(pb.rfid_uid, p.rfid_uid) = ? 
-        OR brt.rfid_uid = ?
+        OR EXISTS (SELECT 1 FROM batch_rfid_tags brt WHERE brt.batch_id = pb.id AND brt.rfid_uid = ?)
         OR p.id = ?
         OR p.name LIKE ?
         OR p.active_ingredient LIKE ?
@@ -289,7 +294,7 @@ async function getAllProductsPaginated(filters = {}) {
       params.push(`%${filters.active_ingredient}%`);
     }
     if (filters.rfid_uid) {
-      baseQuery += ' AND (COALESCE(pb.rfid_uid, p.rfid_uid) = ? OR pb.rfid_uid = ? OR p.rfid_uid = ? OR brt.rfid_uid = ?)';
+      baseQuery += ' AND (COALESCE(pb.rfid_uid, p.rfid_uid) = ? OR pb.rfid_uid = ? OR p.rfid_uid = ? OR EXISTS (SELECT 1 FROM batch_rfid_tags brt WHERE brt.batch_id = pb.id AND brt.rfid_uid = ?))';
       params.push(filters.rfid_uid, filters.rfid_uid, filters.rfid_uid, filters.rfid_uid);
     }
     if (filters.requires_refrigeration !== undefined) {
@@ -309,12 +314,34 @@ async function getAllProductsPaginated(filters = {}) {
     // Agrupar solo por PRODUCTO (product_id)
     // Sumar el stock total de todos los lotes del mismo producto
     // Mostrar una sola fila por producto con stock total
+    // IMPORTANTE: Usar SUM(batch_quantity) para sumar cada batch solo una vez
     baseQuery += ` 
-      GROUP BY p.id
+      GROUP BY p.id, pb.id
+    `;
+    
+    // Ahora agrupar por producto y sumar las cantidades
+    let groupedBaseQuery = `
+      SELECT 
+        product_id,
+        MAX(rfid_code_raw) as rfid_code_raw,
+        MAX(name) as name,
+        MAX(active_ingredient) as active_ingredient,
+        MAX(concentration) as concentration,
+        MAX(presentation) as presentation,
+        MAX(product_type) as product_type,
+        MAX(description) as description,
+        MAX(category_id) as category_id,
+        MAX(category_name) as category_name,
+        MAX(min_stock) as min_stock,
+        MAX(requires_refrigeration) as requires_refrigeration,
+        MAX(units_per_package) as units_per_package,
+        SUM(batch_quantity) as total_stock
+      FROM (${baseQuery}) as distinct_batches
+      GROUP BY product_id
     `;
 
     // Contar total de productos únicos
-    const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) as grouped_products`;
+    const countQuery = `SELECT COUNT(*) as total FROM (${groupedBaseQuery}) as counted_products`;
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
 
@@ -336,7 +363,7 @@ async function getAllProductsPaginated(filters = {}) {
         requires_refrigeration,
         units_per_package,
         total_stock
-      FROM (${baseQuery}) as grouped_products
+      FROM (${groupedBaseQuery}) as grouped_products
       ORDER BY name ASC
     `;
 
@@ -562,9 +589,12 @@ async function getProductBatches(productId) {
 /**
  * Obtener lote por ID
  */
-async function getBatchById(batchId) {
+async function getBatchById(batchId, connection = null) {
   try {
-    const [rows] = await pool.execute(
+    // Usar la conexión proporcionada o el pool general
+    const db = connection || pool;
+    
+    const [rows] = await db.execute(
       `SELECT pb.*, p.name as product_name, p.min_stock,
               (pb.expiry_date < CURDATE()) as is_expired,
               DATEDIFF(pb.expiry_date, CURDATE()) as days_to_expiry
@@ -579,7 +609,7 @@ async function getBatchById(batchId) {
     const batch = rows[0];
     
     // Obtener todos los RFID físicos para este lote
-    const [rfidTags] = await pool.execute(
+    const [rfidTags] = await db.execute(
       'SELECT rfid_uid FROM batch_rfid_tags WHERE batch_id = ? ORDER BY created_at ASC',
       [batchId]
     );
@@ -594,12 +624,15 @@ async function getBatchById(batchId) {
 /**
  * Obtener lote por RFID UID
  */
-async function getBatchByRfidUid(rfidUid) {
+async function getBatchByRfidUid(rfidUid, connection = null) {
   try {
+    // Usar la conexión proporcionada o el pool general
+    const db = connection || pool;
+    
     // Normalizar el RFID antes de buscar
     const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid.toUpperCase().trim();
     
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT DISTINCT pb.*, p.*, pc.name as category_name,
               p.name as product_name,  -- Asegurar campo product_name
               (pb.expiry_date < CURDATE()) as is_expired,
@@ -996,13 +1029,23 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
     // Usar la conexión proporcionada o el pool general
     const db = connection || pool;
     
-    const batch = await getBatchByRfidUid(rfidUid);
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOG: Iniciando descuento de stock
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log(`🔍 [DECREMENT STOCK] Iniciando descuento. RFID: ${rfidUid}, Cantidad: ${quantity}, Usando transacción: ${connection ? 'SÍ' : 'NO'}`);
+    
+    // Pasar la conexión de transacción a getBatchByRfidUid para consistencia
+    const batch = await getBatchByRfidUid(rfidUid, connection);
 
     if (!batch) {
+      console.error(`❌ [DECREMENT STOCK] Lote no encontrado para RFID: ${rfidUid}`);
       throw new Error('Lote no encontrado para el UID RFID proporcionado');
     }
+    
+    console.log(`✅ [DECREMENT STOCK] Batch encontrado. ID: ${batch.id}, Product ID: ${batch.product_id}, Stock actual: ${batch.quantity}`);
 
     if (batch.is_expired) {
+      console.error(`❌ [DECREMENT STOCK] Intento de retirar producto vencido. Batch ID: ${batch.id}`);
       throw new Error('No se puede retirar un producto vencido');
     }
 
@@ -1033,11 +1076,50 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
         throw new Error(`Error: La cantidad resultante sería negativa. Stock actual: ${previousQuantity}, Requerido: ${validatedQuantity}`);
       }
 
+      // ═══════════════════════════════════════════════════════════════════════════
+      // LOGS PARA DEBUGGING - Descuento de stock
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log(`📉 [DECREMENT STOCK] Preparando UPDATE. Batch ID: ${batch.id}, RFID: ${rfidUid}`);
+      console.log(`   Stock anterior: ${previousQuantity}, Cantidad a descontar: ${validatedQuantity}, Stock nuevo esperado: ${newQuantity}`);
+      console.log(`   Usando conexión de transacción: ${connection ? 'SÍ' : 'NO'}`);
+
       // Actualizar cantidad del lote
-      await db.execute(
+      const [updateResult] = await db.execute(
         'UPDATE product_batches SET quantity = ? WHERE id = ?',
         [newQuantity, batch.id]
       );
+      
+      console.log(`✅ [DECREMENT STOCK] UPDATE ejecutado. Batch ID: ${batch.id}`);
+      console.log(`   Resultado del UPDATE:`, {
+        affectedRows: updateResult.affectedRows,
+        changedRows: updateResult.changedRows || 0,
+        insertId: updateResult.insertId || null
+      });
+      
+      if (updateResult.affectedRows === 0) {
+        console.error(`⚠️ [DECREMENT STOCK] ADVERTENCIA: UPDATE no afectó ninguna fila. Batch ID: ${batch.id}`);
+      }
+      
+      // Verificar que el UPDATE realmente se ejecutó
+      const [verifyRows] = await db.execute(
+        'SELECT quantity FROM product_batches WHERE id = ?',
+        [batch.id]
+      );
+      if (verifyRows.length > 0) {
+        const actualQuantity = verifyRows[0].quantity;
+        console.log(`   ✅ Verificación: Stock actual en BD: ${actualQuantity}`);
+        if (actualQuantity !== newQuantity) {
+          console.error(`   ⚠️ DISCREPANCIA: Stock esperado ${newQuantity} pero BD tiene ${actualQuantity}`);
+        }
+      }
+      
+      // Calcular stock total del producto después del descuento
+      const [stockRows] = await db.execute(
+        'SELECT COALESCE(SUM(quantity), 0) as total_stock FROM product_batches WHERE product_id = ?',
+        [lockedBatch.product_id]
+      );
+      const totalProductStock = stockRows[0]?.total_stock || 0;
+      console.log(`📊 [DECREMENT STOCK] Stock total del producto (ID: ${lockedBatch.product_id}): ${totalProductStock}`);
 
       // Registrar en historial
       await db.execute(
@@ -1047,7 +1129,7 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
         [lockedBatch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Retiro de ${validatedQuantity} unidades`]
       );
 
-      const updatedBatch = await getBatchById(batch.id);
+      const updatedBatch = await getBatchById(batch.id, connection);
       return {
         ...updatedBatch,
         fifo_warning: null
@@ -1093,6 +1175,12 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
     let remainingQuantity = validatedQuantity;
     const updatedBatches = [];
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOGS PARA DEBUGGING - Descuento de múltiples lotes
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log(`📉 [DECREMENT STOCK MULTI-BATCH] Product ID: ${batch.product_id}, Cantidad requerida: ${validatedQuantity}`);
+    console.log(`   Stock total disponible: ${totalAvailableStock}, Lotes a usar: ${batchesToUse.length}`);
+
     // Descontar de múltiples lotes si es necesario
     // Los lotes ya están bloqueados con FOR UPDATE, así que son seguros
     for (const batchToUse of batchesToUse) {
@@ -1112,6 +1200,11 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
       if (newQuantity < 0) {
         throw new Error(`Error: La cantidad resultante sería negativa para el lote ${batchToUse.lot_number}. Stock actual: ${previousQuantity}, Intento de descontar: ${quantityFromBatch}`);
       }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // LOGS PARA DEBUGGING - Actualización de cada lote
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log(`   📦 Lote ID: ${batchToUse.id}, Stock anterior: ${previousQuantity}, Descontar: ${quantityFromBatch}, Stock nuevo: ${newQuantity}`);
 
       // Actualizar el lote (ya está bloqueado, así que es seguro)
       await db.execute(
@@ -1149,8 +1242,19 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
       throw new Error(`Error: No se pudo descontar toda la cantidad. Quedan ${remainingQuantity} unidades sin descontar`);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOG FINAL - Descuento completado
+    // ═══════════════════════════════════════════════════════════════════════════
+    const [finalStockRows] = await db.execute(
+      'SELECT COALESCE(SUM(quantity), 0) as total_stock FROM product_batches WHERE product_id = ?',
+      [batch.product_id]
+    );
+    const finalTotalStock = finalStockRows[0]?.total_stock || 0;
+    console.log(`✅ [DECREMENT STOCK MULTI-BATCH] Descuento completado. Stock total final del producto (ID: ${batch.product_id}): ${finalTotalStock}`);
+    console.log(`   Lotes afectados: ${updatedBatches.length}`);
+
     // Retornar el lote original actualizado
-    const updatedBatch = await getBatchById(batch.id);
+    const updatedBatch = await getBatchById(batch.id, connection);
     return {
       ...updatedBatch,
       fifo_warning: updatedBatches.length > 1 ? `Descuento realizado desde ${updatedBatches.length} lote(s)` : null,
@@ -1201,7 +1305,7 @@ async function incrementBatchStock(rfidUid, quantity, areaId = null) {
       [batch.product_id, batch.id, areaId, previousQuantity, newQuantity, `Ingreso de ${validatedQuantity} unidades`]
     );
 
-    const updatedBatch = await getBatchById(batch.id);
+    const updatedBatch = await getBatchById(batch.id, connection);
     return updatedBatch;
   } catch (error) {
     throw error;
@@ -3274,10 +3378,13 @@ async function addPrescriptionItem(prescriptionId, itemData) {
 /**
  * Despachar item de receta
  */
-async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batchId, quantity, userId) {
+async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batchId, quantity, userId, connection = null) {
   try {
+    // Usar la conexión proporcionada o el pool general
+    const db = connection || pool;
+    
     // Actualizar cantidad despachada en prescription_items
-    await pool.execute(
+    await db.execute(
       `UPDATE prescription_items 
        SET quantity_dispensed = COALESCE(quantity_dispensed, 0) + ?,
            updated_at = CURRENT_TIMESTAMP
@@ -3286,7 +3393,7 @@ async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batch
     );
     
     // Registrar en prescription_fulfillments
-    const [result] = await pool.execute(
+    const [result] = await db.execute(
       `INSERT INTO prescription_fulfillments 
        (prescription_id, prescription_item_id, batch_id, quantity_dispensed, dispensed_by)
        VALUES (?, ?, ?, ?, ?)`,
@@ -3294,7 +3401,7 @@ async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batch
     );
     
     // Verificar si la receta está completa
-    const [items] = await pool.execute(
+    const [items] = await db.execute(
       `SELECT quantity_required, quantity_dispensed 
        FROM prescription_items 
        WHERE prescription_id = ?`,
@@ -3318,14 +3425,14 @@ async function fulfillPrescriptionItem(prescriptionId, prescriptionItemId, batch
     
     // Actualizar estado de la receta
     if (newStatus === 'fulfilled') {
-      await pool.execute(
+      await db.execute(
         `UPDATE prescriptions 
          SET status = ?, fulfilled_by = ?, fulfilled_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [newStatus, userId, prescriptionId]
       );
     } else {
-      await pool.execute(
+      await db.execute(
         `UPDATE prescriptions 
          SET status = ?
          WHERE id = ?`,

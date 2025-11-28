@@ -53,6 +53,11 @@
   height: 95vh;
 }
 
+/* Modal extra ancho para despacho de recetas QR */
+.qr-dispense-modal-wide {
+  max-width: 1400px !important;
+}
+
 /* Header */
 .modal-header {
   display: flex;

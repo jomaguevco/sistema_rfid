@@ -114,6 +114,33 @@ export default function Stock() {
     }
   })
 
+  // Escuchar cambios en queries relacionadas para refrescar automáticamente
+  useEffect(() => {
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event?.type === 'removed') {
+        const queryKey = event.query?.queryKey
+        if (!Array.isArray(queryKey)) return
+
+        // Si se invalida una query relacionada con stock, batches o products, refetch
+        if (queryKey[0] === 'stock' || queryKey[0] === 'batches' || queryKey[0] === 'products') {
+          console.log('🔄 Stock.jsx: Query invalidada, forzando refetch...', queryKey)
+          // Refetch inmediato
+          refetch().then(() => {
+            console.log('✅ Stock.jsx: Refetch completado')
+          }).catch(err => {
+            console.error('❌ Stock.jsx: Error en refetch:', err)
+          })
+          // Refetch adicional con delay
+          setTimeout(() => {
+            refetch().catch(console.error)
+          }, 500)
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [queryClient, refetch])
+
   const { data: categories } = useQuery({
     queryKey: ['categories'],
     queryFn: async () => {
@@ -300,6 +327,41 @@ export default function Stock() {
           <h1>Gestión de Stock</h1>
           <p className="page-subtitle">Ver stock total de medicamentos agrupados por producto. El código IDP identifica cada producto. Presiona "Stock" para ver detalles por lote.</p>
         </div>
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            console.log('🔄 [Stock] Refrescar stock manualmente...')
+            try {
+              // Invalidar todas las queries relacionadas
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['stock'], exact: false }),
+                queryClient.invalidateQueries({ queryKey: ['products'], exact: false }),
+                queryClient.invalidateQueries({ queryKey: ['batches'], exact: false }),
+                queryClient.invalidateQueries(['stock-overview-stats']),
+                queryClient.invalidateQueries(['stock-low-critical']),
+                queryClient.invalidateQueries(['stock-expiring'])
+              ])
+              
+              // Refetch explícito de todas las queries
+              await Promise.all([
+                queryClient.refetchQueries({ queryKey: ['stock'], exact: false }),
+                queryClient.refetchQueries({ queryKey: ['products'], exact: false }),
+                queryClient.refetchQueries({ queryKey: ['batches'], exact: false }),
+                queryClient.refetchQueries(['stock-overview-stats']),
+                queryClient.refetchQueries(['stock-low-critical']),
+                queryClient.refetchQueries(['stock-expiring']),
+                refetch()
+              ])
+              
+              console.log('✅ [Stock] Stock refrescado manualmente - todas las queries actualizadas')
+            } catch (error) {
+              console.error('❌ [Stock] Error al refrescar stock:', error)
+            }
+          }}
+          icon={<HiCollection />}
+        >
+          Refrescar Stock
+        </Button>
       </div>
 
       <div className="stock-overview-grid">

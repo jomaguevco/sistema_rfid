@@ -9,7 +9,16 @@ import Button from '../common/Button'
 import Badge from '../common/Badge'
 import Loading from '../common/Loading'
 import { normalizeRfidCode } from '../../utils/formatting'
-import { HiWifi, HiStop, HiCheckCircle, HiExclamationCircle, HiX, HiExclamation } from 'react-icons/hi'
+import { 
+  HiWifi, 
+  HiStop, 
+  HiCheckCircle, 
+  HiExclamationCircle, 
+  HiX, 
+  HiCube,
+  HiClipboardList,
+  HiShoppingCart
+} from 'react-icons/hi'
 import './DispenseModal.css'
 
 export default function QRDispenseModal({ prescription, isOpen, onClose, onSuccess }) {
@@ -19,10 +28,10 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
   const [quantity, setQuantity] = useState(1)
   const [batch, setBatch] = useState(null)
   const [error, setError] = useState('')
-  const [errorType, setErrorType] = useState('') // 'not_found', 'not_in_prescription', 'already_complete', 'out_of_stock', 'insufficient'
   const [prescriptionItems, setPrescriptionItems] = useState([])
+  const [dispenseQueue, setDispenseQueue] = useState([])
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
-  const [lastDispensedItem, setLastDispensedItem] = useState(null)
 
   const { lastRFID, listening, startListening, stopListening } = useRFID({
     onDetect: async (rfidUid) => {
@@ -73,31 +82,83 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
     }
   }, [isOpen, prescription, fullPrescription])
 
-  // Limpiar estados al cerrar el modal
-  const handleClose = () => {
-    setError('')
-    setErrorType('')
-    setSuccessMessage('')
-    setLastDispensedItem(null)
-    setBatch(null)
-    setQuantity(1)
-    stopListening()
-    onClose()
+  // Limpiar cola cuando se cierra el modal
+  useEffect(() => {
+    if (!isOpen) {
+      setDispenseQueue([])
+      setError('')
+      setSuccessMessage('')
+      setIsProcessingBatch(false)
+    }
+  }, [isOpen])
+
+  // Funciones auxiliares para la cola de despacho
+  const addToDispenseQueue = (item, batch) => {
+    const remaining = item.quantity_required - (item.quantity_dispensed || 0)
+    const maxQuantity = Math.min(remaining, batch.quantity)
+    const initialQuantity = Math.min(1, maxQuantity)
+    
+    const queueItem = {
+      id: `${batch.rfid_uid}-${Date.now()}`,
+      prescriptionItemId: item.id,
+      productId: item.product_id,
+      productName: item.product_name,
+      batchId: batch.id,
+      batchRfid: batch.rfid_uid,
+      quantity: initialQuantity,
+      maxQuantity: maxQuantity,
+      remaining: remaining,
+      stockAvailable: batch.quantity
+    }
+    
+    setDispenseQueue(prev => [...prev, queueItem])
+    setSuccessMessage(`✅ ${item.product_name} agregado a la cola de despacho`)
+    setTimeout(() => setSuccessMessage(''), 3000)
+  }
+
+  const removeFromDispenseQueue = (queueId) => {
+    setDispenseQueue(prev => prev.filter(item => item.id !== queueId))
+  }
+
+  const updateDispenseQueueQuantity = (queueId, newQuantity) => {
+    setDispenseQueue(prev => prev.map(item => {
+      if (item.id === queueId) {
+        const qty = parseInt(newQuantity) || 1
+        const clampedQty = Math.max(1, Math.min(qty, item.maxQuantity))
+        return { ...item, quantity: clampedQty }
+      }
+      return item
+    }))
+  }
+
+  const clearDispenseQueue = () => {
+    setDispenseQueue([])
   }
 
   const handleRFIDDetected = async (rfidUid) => {
     try {
       setError('')
-      setErrorType('')
       setSuccessMessage('')
       const normalizedRfid = normalizeRfidCode(rfidUid) || rfidUid.toUpperCase().trim()
+      
+      // Verificar si el RFID ya está en la cola
+      const alreadyInQueue = dispenseQueue.find(item => {
+        const itemRfid = normalizeRfidCode(item.batchRfid) || item.batchRfid
+        return itemRfid === normalizedRfid
+      })
+      
+      if (alreadyInQueue) {
+        setError('Este medicamento ya fue escaneado y está en la cola de despacho')
+        setTimeout(() => setError(''), 3000)
+        return
+      }
       
       const response = await api.get(`/batches?rfid_uid=${normalizedRfid}`)
       const batches = response.data.data || []
       
       if (batches.length === 0) {
-        setErrorType('not_found')
-        setError('MEDICAMENTO NO ENCONTRADO: No se encontró ningún lote con este código RFID en el sistema. Verifica que el tag esté registrado correctamente.')
+        setError('MEDICAMENTO NO ENCONTRADO: No se encontró ningún lote con este código RFID en el sistema.')
+        setTimeout(() => setError(''), 5000)
         return
       }
 
@@ -107,44 +168,31 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
       }) || batches[0]
       
       const productId = foundBatch.product_id
-      const productName = foundBatch.product_name || 'Medicamento escaneado'
 
-      // Buscar si el producto está en la receta
-      const itemInPrescription = prescriptionItems.find(item => item.product_id === productId)
-      
-      if (!itemInPrescription) {
-        setErrorType('not_in_prescription')
-        setError(`MEDICAMENTO NO ESTÁ EN LA RECETA: El medicamento "${productName}" (ID: ${productId}) NO forma parte de esta receta. Verifica que estás escaneando el medicamento correcto.`)
+      const item = prescriptionItems.find(
+        item => {
+          if (item.product_id !== productId) return false
+          const status = getItemStatus(item)
+          return status === 'pending' || status === 'partial'
+        }
+      )
+
+      if (!item) {
+        setError('Este medicamento no está en la receta o ya está completado')
+        setTimeout(() => setError(''), 3000)
         return
       }
 
-      // Verificar si ya está completamente despachado
-      const status = getItemStatus(itemInPrescription)
-      if (status === 'fulfilled') {
-        setErrorType('already_complete')
-        setError(`MEDICAMENTO YA COMPLETADO: El medicamento "${productName}" ya fue despachado completamente (${itemInPrescription.quantity_dispensed}/${itemInPrescription.quantity_required} unidades). No se requiere más despacho.`)
-        return
-      }
-
-      // Verificar si hay stock disponible
-      if (foundBatch.quantity === 0) {
-        setErrorType('out_of_stock')
-        setError(`SIN STOCK DISPONIBLE: El medicamento "${productName}" está agotado en este lote. Stock actual: 0 unidades.`)
-        return
-      }
-
-      setSelectedItem(itemInPrescription)
-      setBatch(foundBatch)
-      stopListening()
-
-      const remaining = itemInPrescription.quantity_required - (itemInPrescription.quantity_dispensed || 0)
-      const maxQuantity = Math.min(remaining, foundBatch.quantity)
-      const currentQty = parseInt(quantity) || 1
-      setQuantity(Math.min(currentQty, maxQuantity))
+      addToDispenseQueue(item, foundBatch)
     } catch (err) {
-      setErrorType('general')
-      const errorMessage = err.response?.data?.error || err.message || 'Error al buscar el lote'
+      let errorMessage = err.response?.data?.error || err.message || 'Error al buscar el lote'
+      
+      if (err.isNetworkError || err.userMessage) {
+        errorMessage = err.userMessage || 'Error de conexión con el servidor. Verifica que el backend esté corriendo y que hayas aceptado el certificado HTTPS.'
+      }
+      
       setError(errorMessage)
+      setTimeout(() => setError(''), 5000)
     }
   }
 
@@ -162,79 +210,315 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
       })
       return response.data
     },
-    onSuccess: (data, variables) => {
+    onSuccess: (data) => {
+      // Invalidar queries con exact: false para capturar todas las variantes
       queryClient.invalidateQueries(['prescriptions'])
       queryClient.invalidateQueries(['prescription-qr'])
       queryClient.invalidateQueries(['prescription-items-qr'])
-      queryClient.invalidateQueries(['batches'])
+      queryClient.invalidateQueries({ queryKey: ['stock'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['batches'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['products'], exact: false })
+      queryClient.invalidateQueries(['stock-overview-stats'])
+      queryClient.invalidateQueries(['stock-low-critical'])
+      queryClient.invalidateQueries(['stock-expiring'])
       
-      // Guardar información del item despachado
-      const dispensedQty = parseInt(variables.qty) || 0
-      setLastDispensedItem({
-        name: selectedItem?.product_name,
-        quantity: dispensedQty
-      })
+      // ═══════════════════════════════════════════════════════════════════════════
+      // REFETCH INMEDIATO de queries específicas
+      // ═══════════════════════════════════════════════════════════════════════════
+      if (data?.batch) {
+        const productId = data.batch.product_id
+        const batchRfid = data.batch.rfid_uid
+        queryClient.refetchQueries(['batches', 'product', productId]).catch(console.error)
+        queryClient.refetchQueries(['batches', 'rfid', batchRfid]).catch(console.error)
+        queryClient.refetchQueries(['products', productId]).catch(console.error)
+      }
       
-      // Mostrar mensaje de éxito
-      setSuccessMessage(data?.message || `Se despacharon ${dispensedQty} unidades de "${selectedItem?.product_name}"`)
-      
-      // Limpiar para siguiente despacho
-      setBatch(null)
-      setQuantity(1)
-      setError('')
-      setErrorType('')
-      
-      // Refrescar la lista de items de la receta
-      refetchPrescription()
-      
-      // Limpiar mensaje de éxito después de 5 segundos
+      // ═══════════════════════════════════════════════════════════════════════════
+      // REFETCH CON DELAY de queries generales
+      // ═══════════════════════════════════════════════════════════════════════════
       setTimeout(() => {
-        setSuccessMessage('')
-        setLastDispensedItem(null)
-      }, 5000)
+        queryClient.refetchQueries({ queryKey: ['stock'], exact: false }).catch(console.error)
+        queryClient.refetchQueries({ queryKey: ['batches'], exact: false }).catch(console.error)
+        queryClient.refetchQueries({ queryKey: ['products'], exact: false }).catch(console.error)
+        queryClient.refetchQueries(['stock-overview-stats']).catch(console.error)
+        queryClient.refetchQueries(['stock-low-critical']).catch(console.error)
+        queryClient.refetchQueries(['stock-expiring']).catch(console.error)
+      }, 300)
+      
+      if (data?.message) {
+        console.log('✅', data.message)
+      }
+      onSuccess?.()
     },
     onError: (error) => {
-      setErrorType('general')
-      const errorMessage = error.response?.data?.error || error.message || 'Error al despachar el medicamento'
+      let errorMessage = error.response?.data?.error || error.message || 'Error al despachar el medicamento'
+      
+      if (error.isNetworkError || error.userMessage) {
+        errorMessage = error.userMessage || 'Error de conexión con el servidor. Verifica que el backend esté corriendo y que hayas aceptado el certificado HTTPS.'
+      }
+      
       setError(errorMessage)
     }
   })
 
+  const validateDispenseQueue = () => {
+    if (dispenseQueue.length === 0) {
+      return { valid: false, error: 'No hay medicamentos en la cola de despacho' }
+    }
+
+    for (const queueItem of dispenseQueue) {
+      if (queueItem.quantity <= 0) {
+        return { valid: false, error: `${queueItem.productName}: La cantidad debe ser mayor a 0` }
+      }
+
+      if (queueItem.quantity > queueItem.maxQuantity) {
+        return { 
+          valid: false, 
+          error: `${queueItem.productName}: La cantidad (${queueItem.quantity}) excede el máximo permitido (${queueItem.maxQuantity})` 
+        }
+      }
+
+      if (queueItem.remaining <= 0) {
+        return { valid: false, error: `${queueItem.productName}: Este medicamento ya está completado` }
+      }
+
+      if (queueItem.stockAvailable <= 0) {
+        return { valid: false, error: `${queueItem.productName}: Stock insuficiente` }
+      }
+    }
+
+    return { valid: true }
+  }
+
+  const batchFulfillMutation = useMutation({
+    mutationFn: async (queueItems) => {
+      const results = []
+      const errors = []
+
+      for (const queueItem of queueItems) {
+        try {
+          // Agregar timeout específico para cada petición (20 segundos)
+          const response = await api.put(`/prescriptions/${prescription.id}/fulfill`, {
+            prescription_item_id: queueItem.prescriptionItemId,
+            batch_id: queueItem.batchId,
+            quantity: queueItem.quantity
+          }, {
+            timeout: 20000 // 20 segundos por item
+          })
+          results.push({
+            success: true,
+            item: queueItem,
+            data: response.data
+          })
+        } catch (error) {
+          // Mejorar el manejo de errores de timeout
+          let errorMessage = error.response?.data?.error || error.message
+          
+          if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT')) {
+            errorMessage = 'Timeout: La petición tardó demasiado tiempo'
+          } else if (error.isNetworkError || error.userMessage) {
+            errorMessage = error.userMessage || 'Error de conexión con el servidor'
+          }
+          
+          errors.push({
+            success: false,
+            item: queueItem,
+            error: errorMessage
+          })
+          
+          // Continuar con el siguiente item aunque este haya fallado
+          console.error(`❌ Error al despachar ${queueItem.productName}:`, errorMessage)
+        }
+      }
+
+      return { results, errors }
+    },
+    onSuccess: (data) => {
+      console.log('🔄 [QRDispenseModal] Iniciando invalidación y refetch después del despacho...')
+      console.log(`   Items despachados: ${data.results.length}`)
+      
+      // Obtener todos los productIds únicos de los items despachados
+      const productIds = [...new Set(data.results.map(r => r.item.productId).filter(Boolean))]
+      console.log(`   Product IDs a refrescar: ${productIds.join(', ')}`)
+      
+      // ═══════════════════════════════════════════════════════════════════════════
+      // INVALIDAR QUERIES - Usar exact: false para capturar todas las variantes
+      // ═══════════════════════════════════════════════════════════════════════════
+      queryClient.invalidateQueries(['prescriptions'])
+      queryClient.invalidateQueries(['prescription-qr'])
+      queryClient.invalidateQueries(['prescription-items-qr'])
+      queryClient.invalidateQueries({ queryKey: ['stock'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['batches'], exact: false })
+      queryClient.invalidateQueries({ queryKey: ['products'], exact: false })
+      queryClient.invalidateQueries(['stock-overview-stats'])
+      queryClient.invalidateQueries(['stock-low-critical'])
+      queryClient.invalidateQueries(['stock-expiring'])
+      
+      // Invalidar queries específicas por producto
+      productIds.forEach(productId => {
+        queryClient.invalidateQueries(['batches', 'product', productId])
+        queryClient.invalidateQueries(['products', productId])
+      })
+      
+      // Invalidar queries específicas por RFID
+      data.results.forEach(result => {
+        const batchRfid = result.item.batchRfid
+        if (batchRfid) {
+          queryClient.invalidateQueries(['batches', 'rfid', batchRfid])
+        }
+      })
+      
+      // ═══════════════════════════════════════════════════════════════════════════
+      // REFETCH CON DELAY - Esperar 500ms para asegurar que el backend haya commiteado
+      // ═══════════════════════════════════════════════════════════════════════════
+      setTimeout(() => {
+        console.log('🔄 [QRDispenseModal] Refetch con delay (500ms) iniciado...')
+        
+        // Refetch de queries generales
+        Promise.all([
+          queryClient.refetchQueries({ queryKey: ['stock'], exact: false }),
+          queryClient.refetchQueries({ queryKey: ['batches'], exact: false }),
+          queryClient.refetchQueries({ queryKey: ['products'], exact: false }),
+          queryClient.refetchQueries(['stock-overview-stats']),
+          queryClient.refetchQueries(['stock-low-critical']),
+          queryClient.refetchQueries(['stock-expiring'])
+        ]).then(() => {
+          console.log('✅ [QRDispenseModal] Refetch de queries generales completado')
+        }).catch(console.error)
+        
+        // Refetch de queries específicas por producto
+        productIds.forEach(productId => {
+          queryClient.refetchQueries(['batches', 'product', productId]).catch(console.error)
+          queryClient.refetchQueries(['products', productId]).catch(console.error)
+        })
+        
+        // Refetch de queries específicas por RFID
+        data.results.forEach(result => {
+          const batchRfid = result.item.batchRfid
+          if (batchRfid) {
+            queryClient.refetchQueries(['batches', 'rfid', batchRfid]).catch(console.error)
+          }
+        })
+      }, 500)
+      
+      // ═══════════════════════════════════════════════════════════════════════════
+      // REFETCH ADICIONAL - Después de 1 segundo para asegurar actualización completa
+      // ═══════════════════════════════════════════════════════════════════════════
+      setTimeout(() => {
+        console.log('🔄 [QRDispenseModal] Refetch adicional (1s) para asegurar actualización...')
+        queryClient.refetchQueries({ queryKey: ['stock'], exact: false }).catch(console.error)
+        queryClient.refetchQueries({ queryKey: ['products'], exact: false }).catch(console.error)
+        
+        // Refetch adicional de productos específicos
+        productIds.forEach(productId => {
+          queryClient.refetchQueries(['products', productId]).catch(console.error)
+        })
+      }, 1000)
+      
+      const successCount = data.results.length
+      const errorCount = data.errors.length
+      
+      // ═══════════════════════════════════════════════════════════════════════════
+      // FORZAR REFETCH AGRESIVO DE TODAS LAS QUERIES DE STOCK
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log('🔄 Forzando refetch agresivo de todas las queries de stock...')
+      
+      // Invalidar y refetch todas las queries relacionadas con stock
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['stock'], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ['products'], exact: false }),
+        queryClient.invalidateQueries({ queryKey: ['batches'], exact: false })
+      ]).then(() => {
+        console.log('✅ Invalidación completada, iniciando refetch...')
+        // Refetch todas las queries de stock
+        return Promise.all([
+          queryClient.refetchQueries({ queryKey: ['stock'], exact: false }),
+          queryClient.refetchQueries({ queryKey: ['products'], exact: false }),
+          queryClient.refetchQueries({ queryKey: ['batches'], exact: false })
+        ])
+      }).then(() => {
+        console.log('✅ Refetch agresivo completado')
+      }).catch(err => {
+        console.error('❌ Error en refetch agresivo:', err)
+      })
+      
+      if (errorCount === 0) {
+        // Construir mensaje detallado con información de batches usados
+        const batchInfo = data.results
+          .filter(r => r.data?.batch_used)
+          .map(r => {
+            const batch = r.data.batch_used
+            return `${r.item.productName} (RFID: ${batch.rfid_uid}, Lote: ${batch.lot_number}, Stock restante: ${batch.quantity_after})`
+          })
+          .join('; ')
+        
+        const successMsg = batchInfo 
+          ? `✅ Se despacharon correctamente ${successCount} medicamento(s). ${batchInfo}`
+          : `✅ Se despacharon correctamente ${successCount} medicamento(s)`
+        
+        setSuccessMessage(successMsg)
+        clearDispenseQueue()
+        refetchPrescription()
+        onSuccess?.()
+      } else {
+        const errorMessages = data.errors.map(e => `${e.item.productName}: ${e.error}`).join('; ')
+        setError(`Se despacharon ${successCount} medicamento(s), pero ${errorCount} fallaron: ${errorMessages}`)
+        const successfulIds = data.results.map(r => r.item.id)
+        setDispenseQueue(prev => prev.filter(item => !successfulIds.includes(item.id)))
+      }
+      
+      setIsProcessingBatch(false)
+    },
+    onError: (error) => {
+      setIsProcessingBatch(false)
+      let errorMessage = error.response?.data?.error || error.message || 'Error al despachar los medicamentos'
+      
+      if (error.isNetworkError || error.userMessage) {
+        errorMessage = error.userMessage || 'Error de conexión con el servidor. Verifica que el backend esté corriendo y que hayas aceptado el certificado HTTPS.'
+      }
+      
+      setError(errorMessage)
+    }
+  })
+
+  const handleBatchDispense = async () => {
+    const validation = validateDispenseQueue()
+    if (!validation.valid) {
+      setError(validation.error)
+      return
+    }
+
+    setIsProcessingBatch(true)
+    setError('')
+    setSuccessMessage('')
+
+    try {
+      await batchFulfillMutation.mutateAsync(dispenseQueue)
+    } catch (err) {
+      console.error('Error en despacho masivo:', err)
+    }
+  }
+
   const handleDispense = async () => {
     if (!selectedItem || !batch) {
-      setErrorType('general')
       setError('Seleccione un item y escanee el tag del medicamento')
       return
     }
 
     const qtyValue = parseInt(quantity) || 1
     if (qtyValue < 1 || isNaN(qtyValue)) {
-      setErrorType('general')
       setError('La cantidad debe ser un número mayor a 0')
       return
     }
 
     const remaining = selectedItem.quantity_required - (selectedItem.quantity_dispensed || 0)
     if (qtyValue > remaining) {
-      setErrorType('already_complete')
-      setError(`EXCEDE LO REQUERIDO: Solo faltan ${remaining} unidades por despachar de este medicamento.`)
-      return
-    }
-
-    // Verificar si el medicamento está agotado
-    if (batch.quantity === 0 || selectedItem.is_out_of_stock) {
-      setErrorType('out_of_stock')
-      setError('SIN STOCK: Este medicamento está agotado. No se puede despachar hasta que se renueve stock.')
+      setError(`Solo faltan ${remaining} unidades por despachar de este medicamento.`)
       return
     }
 
     if (qtyValue > batch.quantity) {
-      setErrorType('insufficient')
-      if (canViewStock()) {
-        setError(`STOCK INSUFICIENTE: Solo hay ${batch.quantity} unidades disponibles en este lote. Intento de despachar: ${qtyValue} unidades.`)
-      } else {
-        setError('STOCK INSUFICIENTE: No hay suficiente stock disponible para despachar la cantidad solicitada.')
-      }
+      setError(`Stock insuficiente. Solo hay ${batch.quantity} unidades disponibles.`)
       return
     }
 
@@ -245,10 +529,9 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
         batchId: batch.id,
         qty: qtyValue
       })
+      refetchPrescription()
     } catch (err) {
-      setErrorType('general')
-      const errorMessage = err.response?.data?.error || err.message || 'Error al despachar el medicamento'
-      setError(errorMessage)
+      console.error('Error al despachar:', err)
     }
   }
 
@@ -261,227 +544,277 @@ export default function QRDispenseModal({ prescription, isOpen, onClose, onSucce
 
   const allItemsCompleted = prescriptionItems.length > 0 && pendingItems.length === 0
 
-  const remaining = selectedItem 
-    ? selectedItem.quantity_required - (selectedItem.quantity_dispensed || 0)
-    : 0
-
-  // Función para obtener el ícono y clase según tipo de error
-  const getErrorDisplay = () => {
-    const errorConfig = {
-      'not_found': { icon: <HiExclamation />, className: 'error-not-found' },
-      'not_in_prescription': { icon: <HiX />, className: 'error-not-in-prescription' },
-      'already_complete': { icon: <HiCheckCircle />, className: 'error-already-complete' },
-      'out_of_stock': { icon: <HiExclamationCircle />, className: 'error-out-of-stock' },
-      'insufficient': { icon: <HiExclamationCircle />, className: 'error-insufficient' },
-      'general': { icon: <HiExclamationCircle />, className: 'error-general' }
-    }
-    return errorConfig[errorType] || errorConfig['general']
-  }
-
   return (
     <Modal
       isOpen={isOpen}
-      onClose={handleClose}
+      onClose={() => {
+        setDispenseQueue([])
+        setError('')
+        setSuccessMessage('')
+        setIsProcessingBatch(false)
+        stopListening()
+        onClose()
+      }}
       title={`Despachar Receta - ${prescription?.prescription_code || ''}`}
       size="lg"
+      className="qr-dispense-modal-wide"
     >
-      <div className="dispense-modal">
-        {/* Mensaje de éxito prominente */}
-        {successMessage && (
-          <div className="dispense-success-banner">
-            <HiCheckCircle className="success-icon" />
-            <div className="success-content">
-              <strong>¡Despacho Exitoso!</strong>
-              <p>{successMessage}</p>
-              <span className="success-hint">Puedes continuar despachando otros medicamentos de esta receta.</span>
-            </div>
-          </div>
-        )}
-
-        {/* Mensaje de error prominente */}
+      <div className="dispense-modal-v2">
+        {/* Alertas */}
         {error && (
-          <div className={`dispense-error-banner ${getErrorDisplay().className}`} role="alert">
-            {getErrorDisplay().icon}
-            <div className="error-content">
-              <strong>{error.split(':')[0]}</strong>
-              <p>{error.includes(':') ? error.split(':').slice(1).join(':').trim() : error}</p>
+          <div className="alert alert-error">
+            <HiExclamationCircle />
+            <div>
+              <strong>Error</strong>
+              <p>{error}</p>
             </div>
           </div>
         )}
 
-        {/* Aviso de receta completada */}
+        {successMessage && (
+          <div className="alert alert-success">
+            <HiCheckCircle />
+            <div>
+              <strong>Éxito</strong>
+              <p>{successMessage}</p>
+            </div>
+          </div>
+        )}
+
         {allItemsCompleted && (
-          <div className="dispense-completed-banner">
-            <HiCheckCircle className="completed-icon" />
-            <div className="completed-content">
-              <strong>¡Receta Completada!</strong>
+          <div className="alert alert-success">
+            <HiCheckCircle />
+            <div>
+              <strong>Receta Completada</strong>
               <p>Todos los medicamentos de esta receta han sido despachados.</p>
             </div>
           </div>
         )}
 
-        <div className="dispense-section">
-          <h4>Información de la Receta</h4>
-          <div className="prescription-summary">
-            <div className="info-row">
-              <span className="label">Paciente:</span>
-              <span className="value">{prescription?.patient_name || 'N/A'}</span>
+        <div className="dispense-grid">
+          {/* Columna Izquierda: Items Pendientes */}
+          <div className="dispense-column">
+            <div className="section-header">
+              <HiClipboardList />
+              <h3>Items Pendientes ({pendingItems.length})</h3>
             </div>
-            <div className="info-row">
-              <span className="label">Médico:</span>
-              <span className="value">{prescription?.doctor_name || 'N/A'}</span>
-            </div>
-            <div className="info-row">
-              <span className="label">Fecha:</span>
-              <span className="value">
-                {prescription?.prescription_date 
-                  ? new Date(prescription.prescription_date).toLocaleDateString('es-ES')
-                  : 'N/A'}
-              </span>
-            </div>
-          </div>
-        </div>
 
-        <div className="dispense-section">
-          <h4>Items de la Receta ({pendingItems.length} pendientes / {prescriptionItems.length} total)</h4>
-          {prescriptionItems.length === 0 && (
-            <div className="no-items-message">
-              <p>No hay items en esta receta</p>
-            </div>
-          )}
-          <div className="items-list">
-            {pendingItems.length === 0 && prescriptionItems.length > 0 && (
-              <p className="no-pending-items">✓ Todos los items han sido despachados</p>
+            {pendingItems.length === 0 ? (
+              <div className="empty-state success">
+                <HiCheckCircle />
+                <p>Todos los items han sido despachados</p>
+              </div>
+            ) : (
+              <div className="items-grid">
+                {pendingItems.map((item) => {
+                  const status = getItemStatus(item)
+                  const remaining = item.quantity_required - (item.quantity_dispensed || 0)
+                  return (
+                    <div
+                      key={item.id}
+                      className={`item-card ${selectedItem?.id === item.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedItem(item)
+                        setBatch(null)
+                        setQuantity(1)
+                        setError('')
+                      }}
+                    >
+                      <div className="item-card-header">
+                        <h4>{item.product_name}</h4>
+                        <Badge variant={status === 'partial' ? 'warning' : 'info'}>
+                          {status === 'partial' ? 'Parcial' : 'Pendiente'}
+                        </Badge>
+                      </div>
+                      <div className="item-card-stats">
+                        <div className="stat">
+                          <span className="stat-label">Requerido</span>
+                          <span className="stat-value">{item.quantity_required}</span>
+                        </div>
+                        <div className="stat">
+                          <span className="stat-label">Despachado</span>
+                          <span className="stat-value">{item.quantity_dispensed || 0}</span>
+                        </div>
+                        <div className="stat highlight">
+                          <span className="stat-label">Faltan</span>
+                          <span className="stat-value">{remaining}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             )}
-            {pendingItems.map((item) => (
-              <div
-                key={item.id}
-                className={`item-option ${selectedItem?.id === item.id ? 'selected' : ''}`}
-                onClick={() => {
-                  setSelectedItem(item)
-                  setBatch(null)
-                  setQuantity(1)
-                  setError('')
-                  setErrorType('')
-                }}
-              >
-                <div>
-                  <strong>{item.product_name}</strong>
-                  <div className="item-quantities">
-                    <span>Requerido: {item.quantity_required}</span>
-                    <span>Despachado: {item.quantity_dispensed || 0}</span>
-                    <span className="remaining-highlight">Faltan: {item.quantity_required - (item.quantity_dispensed || 0)}</span>
+          </div>
+
+          {/* Columna Derecha: Escaneo y Cola de Despacho */}
+          <div className="dispense-column">
+            {/* Sección de Escaneo */}
+            {pendingItems.length > 0 && (
+              <div className="scan-section">
+                <div className="section-header">
+                  <HiWifi />
+                  <h3>Escanear Tag del Medicamento</h3>
+                </div>
+                <div className="scan-controls">
+                  <Button
+                    variant={listening ? 'danger' : 'primary'}
+                    onClick={listening ? stopListening : startListening}
+                    className="scan-button"
+                    disabled={isProcessingBatch}
+                    fullWidth
+                  >
+                    {listening ? <><HiStop /> Detener Detección</> : <><HiWifi /> Activar Detección</>}
+                  </Button>
+                  {listening && (
+                    <div className="scan-status">
+                      <span className="pulse-indicator"></span>
+                      <span>Escuchando RFID...</span>
+                      {lastRFID && <span className="detected-rfid">Detectado: {lastRFID.uid}</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Sección de Cola de Despacho */}
+            {dispenseQueue.length > 0 && (
+              <div className="queue-section">
+                <div className="section-header">
+                  <HiShoppingCart />
+                  <h3>Detalle de Despacho ({dispenseQueue.length})</h3>
+                </div>
+
+                <div className="queue-list">
+                  {dispenseQueue.map((queueItem) => (
+                    <div key={queueItem.id} className="queue-card">
+                      <div className="queue-card-main">
+                        <div className="queue-card-info">
+                          <h4>{queueItem.productName}</h4>
+                          <div className="queue-card-meta">
+                            <span className="meta-item">
+                              <strong>RFID:</strong> {queueItem.batchRfid}
+                            </span>
+                            <span className="meta-item">
+                              <strong>Stock:</strong> {queueItem.stockAvailable}
+                            </span>
+                            <span className="meta-item">
+                              <strong>Faltan:</strong> {queueItem.remaining}
+                            </span>
+                            {queueItem.quantity > queueItem.maxQuantity && (
+                              <span className="meta-item warning">
+                                <strong>⚠ Excede máximo</strong>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => removeFromDispenseQueue(queueItem.id)}
+                          className="remove-button"
+                        >
+                          <HiX />
+                        </Button>
+                      </div>
+                      <div className="queue-card-quantity">
+                        <label>Cantidad a Despachar</label>
+                        <div className="quantity-controls">
+                          <Input
+                            type="number"
+                            min="1"
+                            max={queueItem.maxQuantity}
+                            value={queueItem.quantity}
+                            onChange={(e) => updateDispenseQueueQuantity(queueItem.id, e.target.value)}
+                            className="quantity-input"
+                          />
+                          <span className="quantity-max">Máx: {queueItem.maxQuantity}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="queue-summary-card">
+                  <div className="summary-row">
+                    <span>Total de Medicamentos:</span>
+                    <strong>{dispenseQueue.length}</strong>
+                  </div>
+                  <div className="summary-row">
+                    <span>Total de Unidades:</span>
+                    <strong>{dispenseQueue.reduce((sum, item) => sum + item.quantity, 0)}</strong>
                   </div>
                 </div>
-                <Badge variant={getItemStatus(item) === 'partial' ? 'warning' : 'info'}>
-                  {getItemStatus(item) === 'partial' ? 'Parcial' : 'Pendiente'}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {selectedItem && !allItemsCompleted && (
-          <>
-            <div className="dispense-section">
-              <h4>Escanear Tag del Medicamento</h4>
-              <div className="rfid-controls">
                 <Button
-                  variant={listening ? 'danger' : 'primary'}
-                  onClick={listening ? stopListening : startListening}
+                  variant="primary"
+                  size="lg"
+                  onClick={handleBatchDispense}
+                  loading={isProcessingBatch}
+                  disabled={dispenseQueue.length === 0 || isProcessingBatch}
+                  className="dispatch-button"
                   fullWidth
                 >
-                  {listening ? <HiStop /> : <HiWifi />}
-                  {listening ? 'Detener Detección' : 'Activar Detección RFID'}
+                  <HiCheckCircle />
+                  Despachar Todo
                 </Button>
-                {listening && (
-                  <div className="rfid-status">
-                    <span className="pulse"></span>
-                    Escuchando...
-                    {lastRFID && <span>Detectado: {lastRFID.uid}</span>}
-                  </div>
-                )}
               </div>
-            </div>
+            )}
 
-            {batch && (
-              <div className="dispense-section batch-section">
-                <h4>Información del Lote Escaneado</h4>
-                {(selectedItem?.is_out_of_stock || batch.quantity === 0) && (
-                  <div className="out-of-stock-warning">
-                    <HiExclamationCircle />
-                    <span>Este medicamento está agotado. No se puede despachar hasta que se renueve stock.</span>
+            {/* Sección de Despacho Individual (solo si no hay cola) */}
+            {selectedItem && batch && dispenseQueue.length === 0 && (
+              <div className="single-dispense-section">
+                <div className="section-header">
+                  <HiCube />
+                  <h3>Información del Lote</h3>
+                </div>
+                <div className="batch-info-grid">
+                  <div className="info-item">
+                    <label>Medicamento</label>
+                    <span><strong>{selectedItem.product_name}</strong></span>
                   </div>
-                )}
-                <div className="batch-info">
-                  <div>
-                    <label>Medicamento:</label>
-                    <span><strong>{selectedItem?.product_name}</strong></span>
-                  </div>
-                  <div>
-                    <label>Código RFID:</label>
+                  <div className="info-item">
+                    <label>RFID</label>
                     <span>{batch.rfid_uid}</span>
                   </div>
                   {canViewStock() && (
-                    <div>
-                      <label>Stock Disponible:</label>
-                      <span className={batch.quantity < remaining ? 'low-stock' : ''}>{batch.quantity} unidades</span>
+                    <div className="info-item">
+                      <label>Stock Disponible</label>
+                      <span>{batch.quantity} unidades</span>
                     </div>
                   )}
-                  <div>
-                    <label>Cantidad Faltante:</label>
-                    <span className="required-amount">{remaining} unidades</span>
+                  <div className="info-item">
+                    <label>Faltan</label>
+                    <span>{selectedItem.quantity_required - (selectedItem.quantity_dispensed || 0)} unidades</span>
                   </div>
                 </div>
-
                 <Input
                   label="Cantidad a Despachar"
                   type="number"
                   min="1"
-                  max={selectedItem?.is_out_of_stock || batch.quantity === 0 ? 0 : Math.min(remaining, batch.quantity)}
+                  max={Math.min(selectedItem.quantity_required - (selectedItem.quantity_dispensed || 0), batch.quantity)}
                   value={quantity}
                   onChange={(e) => {
                     const value = e.target.value
                     const numValue = value === '' ? '' : (parseInt(value) || 1)
                     setQuantity(numValue)
                     setError('')
-                    setErrorType('')
                   }}
-                  helperText={
-                    selectedItem?.is_out_of_stock || batch.quantity === 0
-                      ? 'Este medicamento está agotado. No se puede despachar hasta que se renueve stock.'
-                      : canViewStock() 
-                        ? `Máximo: ${Math.min(remaining, batch.quantity)} unidades (Faltan ${remaining}, Stock disponible: ${batch.quantity})`
-                        : `Máximo: ${Math.min(remaining, batch.quantity)} unidades (Faltan ${remaining})`
-                  }
                 />
-
                 <Button
                   variant="primary"
                   size="lg"
-                  fullWidth
                   onClick={handleDispense}
                   loading={fulfillMutation.isPending}
-                  disabled={!quantity || parseInt(quantity) < 1 || selectedItem?.is_out_of_stock || batch.quantity === 0}
+                  disabled={!quantity || parseInt(quantity) < 1}
+                  fullWidth
                 >
                   <HiCheckCircle />
                   Despachar {parseInt(quantity) || 0} {parseInt(quantity) === 1 ? 'unidad' : 'unidades'}
                 </Button>
               </div>
             )}
-          </>
-        )}
-
-        {/* Botón de cerrar siempre visible */}
-        <div className="dispense-footer">
-          <Button
-            variant="secondary"
-            onClick={handleClose}
-            fullWidth
-          >
-            <HiX />
-            {allItemsCompleted ? 'Cerrar - Receta Completada' : 'Cerrar Despacho'}
-          </Button>
+          </div>
         </div>
       </div>
     </Modal>

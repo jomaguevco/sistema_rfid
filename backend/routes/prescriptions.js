@@ -725,13 +725,22 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     const quantityAlreadyDispensed = item.quantity_dispensed || 0;
     const quantityRemaining = item.quantity_required - quantityAlreadyDispensed;
 
+    // Verificar que aún falte cantidad por despachar
+    if (quantityRemaining <= 0) {
+      connection.release();
+      return res.status(400).json({
+        success: false,
+        error: `Este medicamento ya ha sido completado. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${quantityAlreadyDispensed} unidades individuales.`
+      });
+    }
+
     // Verificar que no se exceda la cantidad requerida total
     const totalDispensed = quantityAlreadyDispensed + quantityValue;
     if (totalDispensed > item.quantity_required) {
       connection.release();
       return res.status(400).json({
         success: false,
-        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${quantityAlreadyDispensed} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
+        error: `Cantidad excede lo requerido. Requerido: ${item.quantity_required} unidades individuales, Despachado: ${quantityAlreadyDispensed} unidades individuales, Faltan: ${quantityRemaining} unidades individuales, Intento de despachar: ${quantityValue} unidades individuales`
       });
     }
 
@@ -766,11 +775,18 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     await connection.beginTransaction();
     console.log('🔄 Transacción iniciada para despacho de receta');
     
-    // Despachar item (usar cantidad ajustada para despacho parcial)
-    await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, actualQuantityToDispense, req.userId);
+    // Despachar item (usar cantidad ajustada para despacho parcial) - PASANDO LA CONEXIÓN DE TRANSACCIÓN
+    await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, actualQuantityToDispense, req.userId, connection);
 
     // Retirar stock del lote (usar cantidad ajustada) - PASANDO LA CONEXIÓN DE TRANSACCIÓN
-    await db.decrementBatchStock(batch.rfid_uid, actualQuantityToDispense, null, connection);
+    const decrementResult = await db.decrementBatchStock(batch.rfid_uid, actualQuantityToDispense, null, connection);
+    
+    // Obtener el product_id correcto del batch que se descontó
+    // decrementResult contiene el batch actualizado después del descuento
+    const actualProductId = decrementResult?.product_id || batch.product_id;
+    const actualBatchId = decrementResult?.id || batchId;
+    
+    console.log(`📊 [FULFILL] Batch descontado - Batch ID: ${actualBatchId}, Product ID: ${actualProductId}, RFID: ${batch.rfid_uid}`);
     
     // ═══════════════════════════════════════════════════════════════════════════
     // COMMIT DE TRANSACCIÓN - Despacho y decremento de stock completados
@@ -778,18 +794,58 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     await connection.commit();
     console.log('✅ Transacción de despacho completada exitosamente');
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CALCULAR STOCK TOTAL DESPUÉS DEL COMMIT - Usar query directa para asegurar datos actualizados
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log(`📊 [FULFILL] Calculando stock total del producto después del commit. Product ID: ${actualProductId}`);
+    
+    // Esperar un momento para asegurar que el commit se haya propagado
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Usar query directa para calcular stock total (después del commit, los datos están actualizados)
+    // Usar una nueva conexión del pool para leer después del commit
+    let totalProductStock = 0;
+    let batchStock = 0;
+    const tempConnection = await db.pool.getConnection();
+    try {
+      const [stockTotalRows] = await tempConnection.execute(
+        'SELECT COALESCE(SUM(quantity), 0) as total_stock FROM product_batches WHERE product_id = ?',
+        [actualProductId]
+      );
+      totalProductStock = parseInt(stockTotalRows[0]?.total_stock || 0);
+      console.log(`📊 [FULFILL] Stock total calculado después del commit: ${totalProductStock} unidades (Product ID: ${actualProductId})`);
+      
+      // Verificar también el stock del batch específico que se descontó
+      const [batchStockRows] = await tempConnection.execute(
+        'SELECT quantity, rfid_uid, lot_number FROM product_batches WHERE id = ?',
+        [actualBatchId]
+      );
+      if (batchStockRows.length > 0) {
+        batchStock = batchStockRows[0].quantity || 0;
+        console.log(`📊 [FULFILL] Stock del batch específico (ID: ${actualBatchId}, RFID: ${batchStockRows[0].rfid_uid}, Lote: ${batchStockRows[0].lot_number}): ${batchStock} unidades`);
+      }
+    } finally {
+      tempConnection.release();
+    }
+
     // Obtener receta actualizada
     const updatedPrescription = await db.getPrescriptionById(parseInt(id));
     const updatedItems = await db.getPrescriptionItems(parseInt(id));
 
     // ✅ Obtener el batch actualizado para mostrar el stock correcto
     // El stock puede haber cambiado si se descontó de múltiples lotes
-    const updatedBatchInfo = await db.getBatchById(batchId);
+    const updatedBatchInfo = await db.getBatchById(actualBatchId);
     const remainingStock = updatedBatchInfo ? updatedBatchInfo.quantity : 0;
     
-    // Calcular stock total del producto para mostrar en la respuesta
-    const allProductBatches = await db.getProductBatches(batch.product_id);
-    const totalProductStock = allProductBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+    console.log(`📊 [FULFILL] Batch actualizado - ID: ${actualBatchId}, RFID: ${updatedBatchInfo?.rfid_uid || batch.rfid_uid}, Lote: ${updatedBatchInfo?.lot_number || 'N/A'}, Stock restante: ${remainingStock}`);
+    
+    // Verificar que el cálculo manual coincida con el cálculo de getProductBatches
+    const allProductBatches = await db.getProductBatches(actualProductId);
+    const manualTotalStock = allProductBatches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+    
+    if (totalProductStock !== manualTotalStock) {
+      console.warn(`⚠️ [FULFILL] Discrepancia en cálculo de stock: Query directa=${totalProductStock}, Manual=${manualTotalStock}`);
+    }
     
     // Filtrar información de stock según rol
     const canSeeStock = req.user?.role === 'admin' || req.user?.role === 'farmaceutico';
@@ -836,10 +892,16 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     
     // Solo incluir remaining_stock si es admin
     if (canSeeStock) {
-      responseData.message += ` Stock restante del lote: ${remainingStock} unidades individuales.`;
+      responseData.message += ` Stock restante del lote (ID: ${actualBatchId}, RFID: ${batch.rfid_uid}): ${remainingStock} unidades individuales.`;
       responseData.message += ` Stock total del producto: ${totalProductStock} unidades.`;
       responseData.remaining_stock = remainingStock;
       responseData.total_product_stock = totalProductStock;
+      responseData.batch_used = {
+        batch_id: actualBatchId,
+        rfid_uid: batch.rfid_uid,
+        lot_number: updatedBatchInfo?.lot_number || batch.lot_number,
+        quantity_after: remainingStock
+      };
     }
     
     res.json(responseData);
@@ -1019,10 +1081,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     
     // Actualizar el estado
-    await db.pool.execute(
-      `UPDATE prescriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [status, parseInt(id)]
-    );
+    const updateConnection = await db.pool.getConnection();
+    try {
+      await updateConnection.execute(
+        `UPDATE prescriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [status, parseInt(id)]
+      );
+    } finally {
+      updateConnection.release();
+    }
     
     // Obtener la receta actualizada
     const updatedPrescription = await db.getPrescriptionById(parseInt(id));

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { useRFID } from '../../hooks/useRFID'
@@ -50,6 +50,37 @@ export default function StockDetailModal({ rfidCode, isOpen, onClose }) {
     },
     enabled: isOpen && !!productId
   })
+
+  // Refrescar automáticamente cuando se invaliden queries relacionadas
+  useEffect(() => {
+    if (!isOpen || !productId) return
+
+    // Escuchar invalidaciones de queries relacionadas
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event?.type === 'removed') {
+        const queryKey = event.query?.queryKey
+        if (!Array.isArray(queryKey)) return
+
+        // Si se invalida una query relacionada con batches del mismo producto o RFID
+        const isRelevantBatchQuery = 
+          (queryKey[0] === 'batches' && 
+           ((queryKey[1] === 'product' && queryKey[2] === productId) ||
+            (queryKey[1] === 'rfid' && queryKey[2] === rfidCode))) ||
+          queryKey[0] === 'stock' ||
+          (queryKey[0] === 'products' && queryKey[1] === productId)
+
+        if (isRelevantBatchQuery) {
+          // Refetch con un pequeño delay para asegurar que el backend haya actualizado
+          setTimeout(() => {
+            refetch()
+            queryClient.refetchQueries(['batches', 'rfid', rfidCode])
+          }, 500)
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [isOpen, productId, rfidCode, refetch, queryClient])
 
   // Hook RFID para búsqueda por IDP
   const { lastRFID, listening, startListening, stopListening } = useRFID({
@@ -292,7 +323,18 @@ export default function StockDetailModal({ rfidCode, isOpen, onClose }) {
   // IMPORTANTE: Sumar TODAS las cantidades de TODOS los lotes del producto
   // No solo los lotes únicos agrupados, sino todos los batches individuales
   // Esto asegura que el total coincida con el cálculo del backend
-  const totalStock = batches ? batches.reduce((sum, batch) => sum + (parseInt(batch.quantity) || 0), 0) : 0
+  // Usar Set para evitar duplicados por batch_id
+  const uniqueBatchIds = new Set()
+  const totalStock = batches ? batches.reduce((sum, batch) => {
+    // Evitar duplicados: solo sumar cada batch una vez
+    if (batch.id && uniqueBatchIds.has(batch.id)) {
+      return sum
+    }
+    if (batch.id) {
+      uniqueBatchIds.add(batch.id)
+    }
+    return sum + (parseInt(batch.quantity) || 0)
+  }, 0) : 0
   
   const validBatches = uniqueLotes.filter(l => !l.is_expired && l.total_quantity > 0)
   const expiredBatches = uniqueLotes.filter(l => l.is_expired && l.total_quantity > 0)

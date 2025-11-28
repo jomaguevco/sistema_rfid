@@ -17,7 +17,8 @@ const api = axios.create({
   baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 30000 // 30 segundos de timeout por defecto
 })
 
 // Interceptor para agregar token a todas las peticiones
@@ -37,12 +38,40 @@ api.interceptors.request.use(
   }
 )
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticación y red
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status
     const url = error.config?.url || ''
+    
+    // Manejar errores de red (sin respuesta del servidor)
+    if (!error.response) {
+      const isNetworkError = error.code === 'ERR_NETWORK' || 
+                            error.message?.includes('Network Error') ||
+                            error.message?.includes('ERR_CONNECTION_REFUSED') ||
+                            error.message?.includes('ERR_CONNECTION_RESET') ||
+                            error.message?.includes('ETIMEDOUT') ||
+                            error.message?.includes('timeout') ||
+                            error.code === 'ECONNABORTED'
+      
+      if (isNetworkError) {
+        console.error('❌ Error de conexión con el servidor:', {
+          message: error.message,
+          code: error.code,
+          url: error.config?.url,
+          baseURL: error.config?.baseURL
+        })
+        
+        // Mejorar el mensaje de error para el usuario
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT')) {
+          error.userMessage = 'La petición tardó demasiado tiempo. El servidor puede estar sobrecargado o hay un problema de conexión. Intenta nuevamente.'
+        } else {
+          error.userMessage = 'No se pudo conectar con el servidor. Verifica que el backend esté corriendo y que hayas aceptado el certificado HTTPS.'
+        }
+        error.isNetworkError = true
+      }
+    }
     
     // Endpoints que pueden devolver 403/404 sin ser error de sesión
     const ignoredEndpoints = ['/doctors/me', '/patients/me']

@@ -52,6 +52,14 @@ router.get('/', paginate, authenticateToken, async (req, res) => {
     
     const { products, total } = await db.getAllProductsPaginated(filters);
     
+    // Log para debugging: mostrar stock de algunos productos
+    if (products.length > 0) {
+      console.log(`📊 [GET /products] Retornando ${products.length} productos. Ejemplos de stock:`);
+      products.slice(0, 3).forEach(p => {
+        console.log(`   - ${p.name}: total_stock = ${p.total_stock}`);
+      });
+    }
+    
     // Filtrar información de stock según rol
     const filteredProducts = filterStockForRole(products, req.user?.role);
     
