@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '../../services/api'
 import Modal from '../common/Modal'
 import Input from '../common/Input'
@@ -8,13 +8,15 @@ import { HiSave, HiX } from 'react-icons/hi'
 import './DoctorForm.css'
 
 export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
+  const queryClient = useQueryClient()
   const [formData, setFormData] = useState({
     name: '',
     license_number: '',
     specialty: '',
     area_id: '',
     email: '',
-    phone: ''
+    phone: '',
+    username: ''
   })
   const [errors, setErrors] = useState({})
 
@@ -39,7 +41,8 @@ export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
         specialty: doctor.specialty || '',
         area_id: doctor.area_id || '',
         email: doctor.email || '',
-        phone: doctor.phone || ''
+        phone: doctor.phone || '',
+        username: doctor.username || ''
       })
     } else {
       setFormData({
@@ -48,7 +51,8 @@ export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
         specialty: '',
         area_id: '',
         email: '',
-        phone: ''
+        phone: '',
+        username: ''
       })
     }
     setErrors({})
@@ -73,7 +77,11 @@ export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
       const response = await api.put(`/doctors/${doctor.id}`, updatedDoctor)
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidar todas las queries de doctors para refrescar la lista
+      queryClient.invalidateQueries({ queryKey: ['doctors'] })
+      // También refetch inmediatamente para asegurar que los datos estén actualizados
+      queryClient.refetchQueries({ queryKey: ['doctors'] })
       onSuccess()
       onClose()
     },
@@ -101,7 +109,8 @@ export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
       specialty: formData.specialty.trim() || null,
       area_id: formData.area_id ? parseInt(formData.area_id) : null,
       email: formData.email.trim() || null,
-      phone: formData.phone.trim() || null
+      phone: formData.phone.trim() || null,
+      username: formData.username.trim() || null
     }
 
     if (doctor) {
@@ -180,6 +189,15 @@ export default function DoctorForm({ doctor, isOpen, onClose, onSuccess }) {
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           />
         </div>
+
+        <Input
+          label="Nombre de Usuario"
+          type="text"
+          value={formData.username}
+          onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+          placeholder="Ej: dr_guevara, medico_cotrina"
+          helperText="Opcional: Nombre de usuario único para el médico"
+        />
 
         <div className="form-actions">
           <Button

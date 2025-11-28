@@ -112,7 +112,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
  */
 router.post('/', authenticateToken, requirePermission('admin'), async (req, res) => {
   try {
-    const { name, license_number, specialty, area_id, email, phone } = req.body;
+    const { name, license_number, specialty, area_id, email, phone, username } = req.body;
     
     if (!name || name.trim() === '') {
       return res.status(400).json({
@@ -127,7 +127,8 @@ router.post('/', authenticateToken, requirePermission('admin'), async (req, res)
       specialty: specialty?.trim() || null,
       area_id: area_id ? parseInt(area_id) : null,
       email: email?.trim() || null,
-      phone: phone?.trim() || null
+      phone: phone?.trim() || null,
+      username: username?.trim() || null
     });
     
     res.status(201).json({
@@ -137,9 +138,12 @@ router.post('/', authenticateToken, requirePermission('admin'), async (req, res)
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
+      const errorMessage = error.message?.includes('username') 
+        ? 'Este nombre de usuario ya está registrado' 
+        : 'Este número de colegiatura ya está registrado';
       return res.status(400).json({
         success: false,
-        error: 'Este número de colegiatura ya está registrado'
+        error: errorMessage
       });
     }
     res.status(500).json({
@@ -166,7 +170,7 @@ router.put('/:id', authenticateToken, requirePermission('admin'), async (req, re
     }
     
     const doctorData = {};
-    const fields = ['name', 'license_number', 'specialty', 'area_id', 'email', 'phone', 'is_active'];
+    const fields = ['name', 'license_number', 'specialty', 'area_id', 'email', 'phone', 'username', 'is_active'];
     
     fields.forEach(field => {
       if (req.body[field] !== undefined) {
@@ -189,9 +193,12 @@ router.put('/:id', authenticateToken, requirePermission('admin'), async (req, re
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
+      const errorMessage = error.message?.includes('username') 
+        ? 'Este nombre de usuario ya está registrado' 
+        : 'Este número de colegiatura ya está registrado';
       return res.status(400).json({
         success: false,
-        error: 'Este número de colegiatura ya está registrado'
+        error: errorMessage
       });
     }
     res.status(500).json({

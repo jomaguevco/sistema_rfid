@@ -91,11 +91,15 @@ export default function Doctors() {
       key: 'user_username', 
       field: 'user_username', 
       header: 'Usuario',
-      render: (value) => value ? (
-        <span className="username-badge">{value}</span>
-      ) : (
-        <span className="no-user">Sin usuario</span>
-      )
+      render: (value, row) => {
+        // Priorizar username de doctors, luego user_username de users
+        const username = row.username || value;
+        return username ? (
+          <span className="username-badge">{username}</span>
+        ) : (
+          <span className="no-user">Sin usuario</span>
+        );
+      }
     },
     { 
       key: 'specialty', 

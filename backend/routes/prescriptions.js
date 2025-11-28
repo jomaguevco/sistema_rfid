@@ -778,8 +778,9 @@ router.put('/:id/fulfill', authenticateToken, async (req, res) => {
     // Despachar item (usar cantidad ajustada para despacho parcial) - PASANDO LA CONEXIÓN DE TRANSACCIÓN
     await db.fulfillPrescriptionItem(parseInt(id), prescriptionItemId, batchId, actualQuantityToDispense, req.userId, connection);
 
-    // Retirar stock del lote (usar cantidad ajustada) - PASANDO LA CONEXIÓN DE TRANSACCIÓN
-    const decrementResult = await db.decrementBatchStock(batch.rfid_uid, actualQuantityToDispense, null, connection);
+    // Retirar stock del lote usando el batchId directamente para asegurar que se descontar del batch correcto
+    // PASANDO LA CONEXIÓN DE TRANSACCIÓN
+    const decrementResult = await db.decrementBatchStockById(batchId, actualQuantityToDispense, null, connection);
     
     // Obtener el product_id correcto del batch que se descontó
     // decrementResult contiene el batch actualizado después del descuento

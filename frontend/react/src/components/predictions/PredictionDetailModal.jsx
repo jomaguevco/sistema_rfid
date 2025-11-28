@@ -413,7 +413,19 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                 <div className="rec-item">
                   <span className="rec-label">Cantidad a Pedir:</span>
                   <span className="rec-value highlight">
-                    {Math.round(Math.max(0, results.adjusted_prediction - (product?.total_stock || 0) + results.recommended_safety_stock)).toLocaleString()} unidades
+                    {(() => {
+                      const currentStock = product?.total_stock || 0
+                      const adjustedPrediction = results.adjusted_prediction || 0
+                      const safetyStock = results.recommended_safety_stock || 0
+                      
+                      // Fórmula según documentación: max(0, adjusted_prediction - total_stock + safety_stock)
+                      // Representa: cuánto necesitamos pedir para tener (predicción + stock de seguridad)
+                      // Si el stock actual es mayor o igual a (predicción + stock de seguridad), 
+                      // entonces la cantidad a pedir es 0
+                      const quantityToOrder = Math.max(0, adjustedPrediction - currentStock + safetyStock)
+                      
+                      return Math.round(quantityToOrder).toLocaleString()
+                    })()} unidades
                   </span>
                   <span className="rec-formula">(Predicción - Stock Actual + Stock de Seguridad)</span>
                 </div>

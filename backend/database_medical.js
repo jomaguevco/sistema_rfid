@@ -1266,6 +1266,250 @@ async function decrementBatchStock(rfidUid, quantity = 1, areaId = null, connect
 }
 
 /**
+ * Decrementar stock de un lote por su ID directamente
+ * Esta función asegura que se descontar del batch correcto usando su ID
+ * @param {number} batchId - ID del batch a descontar
+ * @param {number} quantity - Cantidad a retirar (default: 1)
+ * @param {number} areaId - ID del área (opcional)
+ * @param {object} connection - Conexión de transacción (opcional)
+ * @returns {Promise<Object>} - Batch actualizado
+ */
+async function decrementBatchStockById(batchId, quantity = 1, areaId = null, connection = null) {
+  try {
+    // Usar la conexión proporcionada o el pool general
+    const db = connection || pool;
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOG: Iniciando descuento de stock por ID
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log(`🔍 [DECREMENT STOCK BY ID] Iniciando descuento. Batch ID: ${batchId}, Cantidad: ${quantity}, Usando transacción: ${connection ? 'SÍ' : 'NO'}`);
+    
+    // Obtener el batch por ID directamente
+    const batch = await getBatchById(batchId, connection);
+
+    if (!batch) {
+      console.error(`❌ [DECREMENT STOCK BY ID] Lote no encontrado para Batch ID: ${batchId}`);
+      throw new Error('Lote no encontrado para el ID proporcionado');
+    }
+    
+    console.log(`✅ [DECREMENT STOCK BY ID] Batch encontrado. ID: ${batch.id}, Product ID: ${batch.product_id}, Stock actual: ${batch.quantity}`);
+
+    if (batch.is_expired) {
+      console.error(`❌ [DECREMENT STOCK BY ID] Intento de retirar producto vencido. Batch ID: ${batch.id}`);
+      throw new Error('No se puede retirar un producto vencido');
+    }
+
+    // Validar cantidad usando helper
+    const validatedQuantity = validateQuantity(quantity, 'cantidad a retirar');
+
+    // 🔒 BLOQUEAR la fila para prevenir race conditions
+    const [lockedBatchRows] = await db.execute(
+      'SELECT * FROM product_batches WHERE id = ? FOR UPDATE',
+      [batchId]
+    );
+    
+    if (lockedBatchRows.length === 0) {
+      throw new Error('Lote no encontrado o fue eliminado durante la transacción');
+    }
+    
+    const lockedBatch = lockedBatchRows[0];
+    
+    // Validar que el batch bloqueado corresponda al producto correcto
+    if (lockedBatch.product_id !== batch.product_id) {
+      throw new Error(`Error: El batch bloqueado (product_id: ${lockedBatch.product_id}) no coincide con el batch esperado (product_id: ${batch.product_id})`);
+    }
+    
+    // Validar stock nuevamente después del lock (puede haber cambiado)
+    // Si tiene suficiente stock, descontar solo de este lote
+    if (lockedBatch.quantity >= validatedQuantity) {
+      const previousQuantity = lockedBatch.quantity;
+      const newQuantity = previousQuantity - validatedQuantity;
+
+      // Validar que no sea negativo (doble verificación)
+      if (newQuantity < 0) {
+        throw new Error(`Error: La cantidad resultante sería negativa. Stock actual: ${previousQuantity}, Requerido: ${validatedQuantity}`);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // LOGS PARA DEBUGGING - Descuento de stock
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log(`📉 [DECREMENT STOCK BY ID] Preparando UPDATE. Batch ID: ${batchId}`);
+      console.log(`   Stock anterior: ${previousQuantity}, Cantidad a descontar: ${validatedQuantity}, Stock nuevo esperado: ${newQuantity}`);
+      console.log(`   Product ID: ${lockedBatch.product_id}`);
+
+      // Actualizar cantidad del lote
+      const [updateResult] = await db.execute(
+        'UPDATE product_batches SET quantity = ? WHERE id = ?',
+        [newQuantity, batchId]
+      );
+      
+      console.log(`✅ [DECREMENT STOCK BY ID] UPDATE ejecutado. Batch ID: ${batchId}`);
+      
+      if (updateResult.affectedRows === 0) {
+        console.error(`⚠️ [DECREMENT STOCK BY ID] ADVERTENCIA: UPDATE no afectó ninguna fila. Batch ID: ${batchId}`);
+        throw new Error(`Error al actualizar el stock del lote. El lote puede haber sido eliminado.`);
+      }
+      
+      // Calcular stock total del producto después del descuento
+      const [stockRows] = await db.execute(
+        'SELECT COALESCE(SUM(quantity), 0) as total_stock FROM product_batches WHERE product_id = ?',
+        [lockedBatch.product_id]
+      );
+      const totalProductStock = stockRows[0]?.total_stock || 0;
+      console.log(`📊 [DECREMENT STOCK BY ID] Stock total del producto (ID: ${lockedBatch.product_id}): ${totalProductStock}`);
+
+      // Registrar en historial
+      await db.execute(
+        `INSERT INTO stock_history 
+         (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
+         VALUES (?, ?, ?, ?, ?, 'remove', CURDATE(), ?)`,
+        [lockedBatch.product_id, batchId, areaId, previousQuantity, newQuantity, `Retiro de ${validatedQuantity} unidades`]
+      );
+
+      const updatedBatch = await getBatchById(batchId, connection);
+      return {
+        ...updatedBatch,
+        fifo_warning: null
+      };
+    }
+
+    // Si el lote NO tiene suficiente stock, buscar en otros lotes del mismo producto
+    // 🔒 BLOQUEAR todos los lotes del producto para prevenir race conditions
+    const [allBatches] = await db.execute(
+      `SELECT pb.*, 
+              (pb.expiry_date < CURDATE()) as is_expired,
+              DATEDIFF(pb.expiry_date, CURDATE()) as days_to_expiry
+       FROM product_batches pb
+       WHERE pb.product_id = ?
+         AND pb.quantity > 0
+         AND (? = 1 OR pb.expiry_date >= CURDATE())
+       ORDER BY 
+         CASE WHEN ? = 1 THEN 0 ELSE 1 END,
+         pb.expiry_date ASC,
+         pb.entry_date ASC
+       FOR UPDATE`,
+      [batch.product_id, batch.is_expired ? 1 : 0, batch.is_expired ? 1 : 0]
+    );
+
+    // Calcular stock total disponible
+    const totalAvailableStock = allBatches.reduce((sum, b) => sum + b.quantity, 0);
+    
+    if (totalAvailableStock < validatedQuantity) {
+      throw new Error(`Stock insuficiente en todos los lotes. Disponible total: ${totalAvailableStock} unidades, Requerido: ${validatedQuantity} unidades`);
+    }
+
+    // Priorizar el lote especificado, luego agregar otros en orden FIFO
+    let batchesToUse = [];
+    const preferredBatch = allBatches.find(b => b.id === batchId);
+    if (preferredBatch && preferredBatch.quantity > 0) {
+      batchesToUse.push(preferredBatch);
+    }
+    
+    // Agregar otros lotes en orden FIFO (solo del mismo producto)
+    const remainingBatches = allBatches.filter(b => b.id !== batchId && b.product_id === batch.product_id);
+    batchesToUse = [...batchesToUse, ...remainingBatches];
+
+    let remainingQuantity = validatedQuantity;
+    const updatedBatches = [];
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOGS PARA DEBUGGING - Descuento de múltiples lotes
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log(`📉 [DECREMENT STOCK BY ID MULTI-BATCH] Product ID: ${batch.product_id}, Cantidad requerida: ${validatedQuantity}`);
+    console.log(`   Stock total disponible: ${totalAvailableStock}, Lotes a usar: ${batchesToUse.length}`);
+
+    // Descontar de múltiples lotes si es necesario
+    // Los lotes ya están bloqueados con FOR UPDATE, así que son seguros
+    for (const batchToUse of batchesToUse) {
+      if (remainingQuantity <= 0) break;
+
+      // Validar que el lote pertenezca al mismo producto
+      if (batchToUse.product_id !== batch.product_id) {
+        console.warn(`⚠️ [DECREMENT STOCK BY ID] Saltando lote ${batchToUse.id} - pertenece a otro producto (${batchToUse.product_id} vs ${batch.product_id})`);
+        continue;
+      }
+
+      // Re-validar cantidad actual del lote (puede haber cambiado por otro proceso antes del lock)
+      const quantityFromBatch = Math.min(remainingQuantity, batchToUse.quantity);
+      
+      if (quantityFromBatch <= 0) {
+        continue; // Saltar este lote si ya no tiene stock
+      }
+      
+      const previousQuantity = batchToUse.quantity;
+      const newQuantity = previousQuantity - quantityFromBatch;
+
+      // Validar que no sea negativo
+      if (newQuantity < 0) {
+        throw new Error(`Error: La cantidad resultante sería negativa para el lote ${batchToUse.lot_number}. Stock actual: ${previousQuantity}, Intento de descontar: ${quantityFromBatch}`);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // LOGS PARA DEBUGGING - Actualización de cada lote
+      // ═══════════════════════════════════════════════════════════════════════════
+      console.log(`   📦 Lote ID: ${batchToUse.id}, Product ID: ${batchToUse.product_id}, Stock anterior: ${previousQuantity}, Descontar: ${quantityFromBatch}, Stock nuevo: ${newQuantity}`);
+
+      // Actualizar el lote (ya está bloqueado, así que es seguro)
+      await db.execute(
+        'UPDATE product_batches SET quantity = ? WHERE id = ?',
+        [newQuantity, batchToUse.id]
+      );
+
+      // Registrar en historial
+      await db.execute(
+        `INSERT INTO stock_history 
+         (product_id, batch_id, area_id, previous_stock, new_stock, action, consumption_date, notes)
+         VALUES (?, ?, ?, ?, ?, 'remove', CURDATE(), ?)`,
+        [
+          batchToUse.product_id,
+          batchToUse.id,
+          areaId,
+          previousQuantity,
+          newQuantity,
+          `Retiro de ${quantityFromBatch} unidades${batchToUse.id === batchId ? ' (lote especificado)' : ' (FIFO - lote alternativo del mismo producto)'}`
+        ]
+      );
+
+      updatedBatches.push({
+        batch_id: batchToUse.id,
+        lot_number: batchToUse.lot_number,
+        quantity_deducted: quantityFromBatch,
+        previous_quantity: previousQuantity,
+        new_quantity: newQuantity
+      });
+
+      remainingQuantity -= quantityFromBatch;
+    }
+
+    if (remainingQuantity > 0) {
+      throw new Error(`Error: No se pudo descontar toda la cantidad. Quedan ${remainingQuantity} unidades sin descontar`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOG FINAL - Descuento completado
+    // ═══════════════════════════════════════════════════════════════════════════
+    const [finalStockRows] = await db.execute(
+      'SELECT COALESCE(SUM(quantity), 0) as total_stock FROM product_batches WHERE product_id = ?',
+      [batch.product_id]
+    );
+    const finalTotalStock = finalStockRows[0]?.total_stock || 0;
+    console.log(`✅ [DECREMENT STOCK BY ID MULTI-BATCH] Descuento completado. Stock total final del producto (ID: ${batch.product_id}): ${finalTotalStock}`);
+    console.log(`   Lotes afectados: ${updatedBatches.length}`);
+
+    // Retornar el lote original actualizado
+    const updatedBatch = await getBatchById(batchId, connection);
+    return {
+      ...updatedBatch,
+      fifo_warning: updatedBatches.length > 1 ? `Descuento realizado desde ${updatedBatches.length} lote(s)` : null,
+      batches_used: updatedBatches
+    };
+  } catch (error) {
+    console.error(`❌ [DECREMENT STOCK BY ID] Error:`, error);
+    throw error;
+  }
+}
+
+/**
  * Incrementar stock de un lote (cuando se ingresa)
  * @param {string} rfidUid - UID del RFID
  * @param {number} quantity - Cantidad a ingresar
@@ -1428,7 +1672,9 @@ async function createArea(areaData) {
 async function getAllDoctors(filters = {}) {
   try {
     let query = `
-      SELECT d.*, a.name as area_name, u.username as user_username
+      SELECT d.*, a.name as area_name, 
+             COALESCE(d.username, u.username) as user_username,
+             d.username as username
       FROM doctors d
       LEFT JOIN areas a ON d.area_id = a.id
       LEFT JOIN users u ON d.email = u.email AND u.role = 'medico'
@@ -1445,9 +1691,9 @@ async function getAllDoctors(filters = {}) {
       params.push(filters.specialty);
     }
     if (filters.search) {
-      query += ' AND (d.name LIKE ? OR d.license_number LIKE ? OR d.specialty LIKE ?)';
+      query += ' AND (d.name LIKE ? OR d.license_number LIKE ? OR d.specialty LIKE ? OR d.username LIKE ?)';
       const searchTerm = `%${filters.search}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
     }
     if (filters.is_active !== undefined) {
       query += ' AND d.is_active = ?';
@@ -1469,7 +1715,8 @@ async function getAllDoctors(filters = {}) {
 async function getDoctorById(id) {
   try {
     const [rows] = await pool.execute(
-      `SELECT d.*, a.name as area_name
+      `SELECT d.*, a.name as area_name,
+              d.username as username
        FROM doctors d
        LEFT JOIN areas a ON d.area_id = a.id
        WHERE d.id = ?`,
@@ -1527,10 +1774,10 @@ async function getDoctorByNormalizedUsername(username) {
  */
 async function createDoctor(doctorData) {
   try {
-    const { name, license_number, specialty, area_id, email, phone } = doctorData;
+    const { name, license_number, specialty, area_id, email, phone, username } = doctorData;
     const [result] = await pool.execute(
-      'INSERT INTO doctors (name, license_number, specialty, area_id, email, phone) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, license_number, specialty, area_id, email, phone]
+      'INSERT INTO doctors (name, license_number, specialty, area_id, email, phone, username) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, license_number, specialty, area_id, email, phone, username || null]
     );
     return await getDoctorById(result.insertId);
   } catch (error) {
@@ -3809,6 +4056,7 @@ module.exports = {
   updateBatchQuantity,
   deleteBatch,
   decrementBatchStock,
+  decrementBatchStockById,
   // Categorías
   getAllCategories,
   getCategoryById,
