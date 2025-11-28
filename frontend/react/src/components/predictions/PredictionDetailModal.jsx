@@ -102,6 +102,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
       onClose={onClose}
       title={`Análisis de Predicción: ${product?.name || 'Medicamento'}`}
       size="xl"
+      className="prediction-detail-modal"
     >
       {loadingDetail ? (
         <Loading text="Calculando predicción detallada..." />
@@ -131,31 +132,27 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
           {results && (
             <div className="prediction-summary">
               <div className="summary-card main">
-                <div className="summary-icon">
-                  <HiChartBar />
-                </div>
-                <div className="summary-content">
-                  <span className="summary-label">Predicción Final</span>
-                  <span className="summary-value">{results.adjusted_prediction?.toLocaleString() || 0}</span>
-                  <span className="summary-unit">unidades para {getPeriodLabel(selectedPeriod)}</span>
-                </div>
+                <HiChartBar className="summary-icon" />
+                <span className="summary-label">Predicción Final:</span>
+                <span className="summary-value">{Math.round(results.adjusted_prediction || 0).toLocaleString()}</span>
+                <span className="summary-unit">unidades para {getPeriodLabel(selectedPeriod)}</span>
               </div>
               
               <div className="summary-cards-row">
                 <div className="summary-card">
                   <span className="summary-label">Stock Actual</span>
-                  <span className="summary-value small">{product?.total_stock || 0}</span>
+                  <span className="summary-value small">{Math.round(product?.total_stock || 0).toLocaleString()}</span>
                 </div>
                 <div className="summary-card">
                   <span className="summary-label">Déficit</span>
                   <span className={`summary-value small ${(results.adjusted_prediction - (product?.total_stock || 0)) > 0 ? 'deficit' : 'surplus'}`}>
-                    {Math.max(0, results.adjusted_prediction - (product?.total_stock || 0))}
+                    {Math.round(Math.max(0, results.adjusted_prediction - (product?.total_stock || 0))).toLocaleString()}
                   </span>
                 </div>
                 <div className="summary-card">
                   <span className="summary-label">Confianza</span>
                   <Badge variant={getConfidenceVariant(results.confidence_level)} size="lg">
-                    {results.confidence_level}%
+                    {Math.round(results.confidence_level || 0)}%
                   </Badge>
                 </div>
                 <div className="summary-card">
@@ -184,22 +181,22 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                 <div className="statistics-grid">
                   <div className="stat-box">
                     <span className="stat-title">Consumo Promedio Diario</span>
-                    <span className="stat-number">{historicalData.summary.mean?.toFixed(2)}</span>
-                    <span className="stat-formula">{historicalData.summary.calculations?.mean_formula}</span>
+                    <span className="stat-number">{Math.round(historicalData.summary.mean || 0).toLocaleString()}</span>
+                    <span className="stat-formula">{historicalData.summary.calculations?.mean_formula || 'Promedio de consumo diario'}</span>
                   </div>
                   <div className="stat-box">
                     <span className="stat-title">Desviación Estándar</span>
-                    <span className="stat-number">{historicalData.summary.std_deviation?.toFixed(2)}</span>
-                    <span className="stat-formula">{historicalData.summary.calculations?.std_dev_formula}</span>
+                    <span className="stat-number">{Math.round(historicalData.summary.std_deviation || 0).toLocaleString()}</span>
+                    <span className="stat-formula">{historicalData.summary.calculations?.std_dev_formula || 'Variabilidad del consumo'}</span>
                   </div>
                   <div className="stat-box">
                     <span className="stat-title">Coef. de Variación</span>
-                    <span className="stat-number">{historicalData.summary.coefficient_of_variation?.toFixed(2)}%</span>
-                    <span className="stat-formula">{historicalData.summary.calculations?.cv_formula}</span>
+                    <span className="stat-number">{Math.round(historicalData.summary.coefficient_of_variation || 0)}%</span>
+                    <span className="stat-formula">{historicalData.summary.calculations?.cv_formula || 'Medida de variabilidad relativa'}</span>
                   </div>
                   <div className="stat-box">
                     <span className="stat-title">Rango de Consumo</span>
-                    <span className="stat-number">{historicalData.summary.min} - {historicalData.summary.max}</span>
+                    <span className="stat-number">{Math.round(historicalData.summary.min || 0).toLocaleString()} - {Math.round(historicalData.summary.max || 0).toLocaleString()}</span>
                     <span className="stat-formula">Mínimo - Máximo diario</span>
                   </div>
                 </div>
@@ -216,7 +213,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                         style={{ 
                           height: `${Math.min(100, (val / (historicalData.summary?.max || 1)) * 100)}%` 
                         }}
-                        title={`Día ${idx + 1}: ${val} unidades`}
+                        title={`Día ${idx + 1}: ${Math.round(val || 0).toLocaleString()} unidades`}
                       />
                     ))}
                   </div>
@@ -245,9 +242,9 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                     {/* Estadísticas */}
                     {step.statistics && (
                       <div className="step-stats">
-                        <div className="stat-mini">Promedio: <strong>{step.statistics.mean?.toFixed(2)}</strong></div>
-                        <div className="stat-mini">Desv. Est.: <strong>{step.statistics.std_deviation?.toFixed(2)}</strong></div>
-                        <div className="stat-mini">CV: <strong>{step.statistics.coefficient_of_variation?.toFixed(2)}%</strong></div>
+                        <div className="stat-mini">Promedio: <strong>{Math.round(step.statistics.mean || 0).toLocaleString()}</strong></div>
+                        <div className="stat-mini">Desv. Est.: <strong>{Math.round(step.statistics.std_deviation || 0).toLocaleString()}</strong></div>
+                        <div className="stat-mini">CV: <strong>{Math.round(step.statistics.coefficient_of_variation || 0)}%</strong></div>
                       </div>
                     )}
 
@@ -263,7 +260,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                           <code>{step.algorithm.formula}</code>
                         </div>
                         <div className="alg-result">
-                          <span>Promedio diario calculado: <strong>{step.algorithm.daily_average?.toFixed(4)}</strong></span>
+                          <span>Promedio diario calculado: <strong>{Math.round(step.algorithm.daily_average || 0).toLocaleString()}</strong> unidades</span>
                         </div>
                         {step.algorithm.projection && (
                           <div className="alg-projection">
@@ -282,7 +279,11 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                                 <span className="calc-step-num">{calcStep.step}.</span>
                                 <span className="calc-step-desc">{calcStep.description}</span>
                                 {calcStep.operation && <code className="calc-operation">{calcStep.operation}</code>}
-                                {calcStep.result && <span className="calc-result">→ {calcStep.result}</span>}
+                                {calcStep.result && (
+                                  <span className="calc-result">
+                                    → {typeof calcStep.result === 'number' ? Math.round(calcStep.result).toLocaleString() : calcStep.result}
+                                  </span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -300,13 +301,13 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                         <div className="reg-stats">
                           <span>Pendiente (m): <strong>{step.regression.slope?.toFixed(4)}</strong></span>
                           <span>Intercepto (b): <strong>{step.regression.intercept?.toFixed(4)}</strong></span>
-                          <span>Predicción por tendencia: <strong>{step.regression.trend_prediction}</strong></span>
+                          <span>Predicción por tendencia: <strong>{Math.round(step.regression.trend_prediction || 0).toLocaleString()}</strong> unidades</span>
                         </div>
                         {step.combination && (
                           <div className="combination-calc">
                             <span className="formula-label">{step.combination.description}:</span>
                             <code>{step.combination.formula}</code>
-                            <span className="result-value">= <strong>{step.combination.result}</strong> unidades</span>
+                            <span className="result-value">= <strong>{Math.round(step.combination.result || 0).toLocaleString()}</strong> unidades</span>
                           </div>
                         )}
                       </div>
@@ -323,7 +324,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                             </div>
                             <div className="adj-calc">
                               <code>{adj.operation}</code>
-                              <span className="result-value">= <strong>{adj.result}</strong></span>
+                              <span className="result-value">= <strong>{typeof adj.result === 'number' ? Math.round(adj.result).toLocaleString() : adj.result}</strong></span>
                             </div>
                             <span className="adj-explanation">{adj.explanation}</span>
                           </div>
@@ -356,7 +357,7 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
                     <div className="confidence-result">
                       <span className="conf-label">Nivel de confianza final:</span>
                       <Badge variant={getConfidenceVariant(confStep.final_confidence)} size="lg">
-                        {confStep.final_confidence}%
+                        {Math.round(confStep.final_confidence || 0)}%
                       </Badge>
                     </div>
                     
@@ -406,13 +407,13 @@ export default function PredictionDetailModal({ productId, isOpen, onClose }) {
               <div className="recommendation-content">
                 <div className="rec-item">
                   <span className="rec-label">Stock de Seguridad Recomendado:</span>
-                  <span className="rec-value">{results.recommended_safety_stock} unidades</span>
+                  <span className="rec-value">{Math.round(results.recommended_safety_stock || 0).toLocaleString()} unidades</span>
                   <span className="rec-formula">(20% de la predicción ajustada)</span>
                 </div>
                 <div className="rec-item">
                   <span className="rec-label">Cantidad a Pedir:</span>
                   <span className="rec-value highlight">
-                    {Math.max(0, results.adjusted_prediction - (product?.total_stock || 0) + results.recommended_safety_stock)} unidades
+                    {Math.round(Math.max(0, results.adjusted_prediction - (product?.total_stock || 0) + results.recommended_safety_stock)).toLocaleString()} unidades
                   </span>
                   <span className="rec-formula">(Predicción - Stock Actual + Stock de Seguridad)</span>
                 </div>

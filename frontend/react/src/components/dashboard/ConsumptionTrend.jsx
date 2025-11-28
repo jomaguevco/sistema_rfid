@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts'
+import { XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts'
 import api from '../../services/api'
 import Card from '../common/Card'
 import Loading from '../common/Loading'
@@ -32,8 +32,8 @@ export default function ConsumptionTrend({ days = 30 }) {
 
   const chartData = data.map(item => ({
     fecha: new Date(item.date).toLocaleDateString('es-ES', { month: 'short', day: 'numeric' }),
-    consumido: item.total_consumed || 0,
-    removals: item.total_removals || 0
+    consumido: Math.round(item.total_consumed || 0),
+    removals: Math.round(item.total_removals || 0)
   }))
 
   return (
@@ -62,9 +62,10 @@ export default function ConsumptionTrend({ days = 30 }) {
           />
           <Tooltip 
             formatter={(value, name) => {
-              if (name === 'consumido') return [value.toLocaleString(), 'Unidades Consumidas']
-              if (name === 'removals') return [value, 'Retiros']
-              return [value, name]
+              const roundedValue = Math.round(value || 0)
+              if (name === 'consumido') return [roundedValue.toLocaleString(), 'Unidades Consumidas']
+              if (name === 'removals') return [roundedValue.toLocaleString(), 'Retiros']
+              return [roundedValue.toLocaleString(), name]
             }}
             contentStyle={{ 
               backgroundColor: 'white', 
@@ -87,17 +88,8 @@ export default function ConsumptionTrend({ days = 30 }) {
             strokeWidth={3}
             fill="url(#areaGradient)"
             name="Unidades Consumidas"
-            animationDuration={1000}
-            animationBegin={0}
-          />
-          <Line 
-            type="monotone" 
-            dataKey="consumido" 
-            stroke="#0066CC" 
-            strokeWidth={3}
-            dot={{ fill: '#0066CC', r: 5, strokeWidth: 2, stroke: '#fff' }}
-            activeDot={{ r: 7, fill: '#0052A3', stroke: '#fff', strokeWidth: 2 }}
-            name="Unidades Consumidas"
+            dot={{ fill: '#0066CC', r: 4, strokeWidth: 2, stroke: '#fff' }}
+            activeDot={{ r: 6, fill: '#0052A3', stroke: '#fff', strokeWidth: 2 }}
             animationDuration={1000}
             animationBegin={0}
           />

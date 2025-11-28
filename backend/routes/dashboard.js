@@ -156,7 +156,7 @@ router.get('/consumption-by-area', async (req, res) => {
     const [rows] = await db.pool.execute(
       `SELECT a.id, a.name as area_name,
               COUNT(*) as total_removals,
-              SUM(sh.previous_stock - sh.new_stock) as total_consumed
+              FLOOR(SUM(sh.previous_stock - sh.new_stock)) as total_consumed
        FROM stock_history sh
        JOIN areas a ON sh.area_id = a.id
        WHERE sh.action = 'remove' 
@@ -266,7 +266,7 @@ router.get('/consumption-trend', async (req, res) => {
     const [rows] = await db.pool.execute(
       `SELECT 
         DATE(sh.consumption_date) as date,
-        COALESCE(SUM(sh.previous_stock - sh.new_stock), 0) as total_consumed,
+        FLOOR(COALESCE(SUM(sh.previous_stock - sh.new_stock), 0)) as total_consumed,
         COUNT(*) as total_removals
        FROM stock_history sh
        WHERE sh.action = 'remove' 
@@ -370,7 +370,7 @@ router.get('/top-products', async (req, res) => {
     
     const [rows] = await db.pool.execute(
       `SELECT p.id, p.name as product_name, pc.name as category_name,
-              SUM(sh.previous_stock - sh.new_stock) as total_consumed,
+              FLOOR(SUM(sh.previous_stock - sh.new_stock)) as total_consumed,
               COUNT(*) as removal_count
        FROM stock_history sh
        JOIN products p ON sh.product_id = p.id

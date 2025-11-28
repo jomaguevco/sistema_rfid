@@ -40,10 +40,17 @@ export default function ConsumptionChart({ days = 30 }) {
     )
   }
 
+  // Redondear valores para quitar decimales
+  const chartData = data.map(item => ({
+    ...item,
+    total_consumed: Math.round(item.total_consumed || 0),
+    total_removals: Math.round(item.total_removals || 0)
+  }))
+
   return (
     <Card shadow="md" title="Consumo por Área" className="chart-card">
       <ResponsiveContainer width="100%" height={320}>
-        <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
           <defs>
             <linearGradient id="colorGradient1" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#0066CC" stopOpacity={1} />
@@ -81,7 +88,10 @@ export default function ConsumptionChart({ days = 30 }) {
             label={{ value: 'Unidades', angle: -90, position: 'insideLeft', style: { fill: '#374151' } }}
           />
           <Tooltip 
-            formatter={(value) => [value.toLocaleString(), 'Unidades Consumidas']}
+            formatter={(value) => {
+              const roundedValue = Math.round(value || 0)
+              return [roundedValue.toLocaleString(), 'Unidades Consumidas']
+            }}
             contentStyle={{ 
               backgroundColor: 'white', 
               border: '1px solid #E5E7EB', 
@@ -103,7 +113,7 @@ export default function ConsumptionChart({ days = 30 }) {
             animationDuration={800}
             animationBegin={0}
           >
-            {data.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell 
                 key={`cell-${index}`} 
                 fill={SOLID_COLORS[index % SOLID_COLORS.length]}

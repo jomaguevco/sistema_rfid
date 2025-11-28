@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Html5Qrcode } from 'html5-qrcode'
 import api from '../services/api'
 import Card from '../components/common/Card'
@@ -12,6 +12,7 @@ import { HiQrcode, HiCamera, HiStop, HiSearch, HiX } from 'react-icons/hi'
 import './QRScanner.css'
 
 export default function QRScanner() {
+  const queryClient = useQueryClient()
   const [qrCode, setQrCode] = useState('')
   const [manualCode, setManualCode] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -648,6 +649,9 @@ export default function QRScanner() {
                     setQrCode('')
                     setManualCode('')
                     setError('')
+                    setShowDispenseModal(false)
+                    // Invalidar query para limpiar datos de la receta
+                    queryClient.invalidateQueries(['prescription-qr'])
                   }}
                 >
                   Limpiar
